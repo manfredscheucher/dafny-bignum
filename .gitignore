@@ -1,0 +1,17 @@
+# Dafny / target build artifacts
+*.dll
+*.exe
+*.pdb
+*.dSYM/
+obj/
+bin/
+out/
+*-cs/
+*-py/
+*-java/
+*-go/
+*-js/
+*.dtr
+*.runtimeconfig.json
+*.deps.json
+.DS_Store
