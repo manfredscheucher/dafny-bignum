@@ -54,6 +54,14 @@ made explicit to the user before building.
 - `src/BigInt.dfy` — signed wrapper (sign + magnitude) + `GCD`.
 - `src/Rational.dfy` — `num`/`den` over `BigInt`, gcd-reduced.
 
+## Scope: minimal, not fast
+
+Explicitly **no performance work**. No Karatsuba/Toom multiplication, no
+Newton/Knuth-D division, no limb-level micro-optimisation. Only the minimum an
+arbitrary-precision int + rational needs: schoolbook add/sub/mul, plain long
+division, Euclidean gcd, gcd-reduced rationals. Simple and verifiable beats
+fast. Speed is a possible phase-2 concern, deliberately out of scope here.
+
 ## Verification contract
 
 Every operation carries a postcondition stated in terms of `Value()` (or, for
