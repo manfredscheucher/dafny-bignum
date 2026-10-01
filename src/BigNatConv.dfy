@@ -1,10 +1,9 @@
 /*******************************************************************************
  * dafny-bignum: BigNatConv
  *
- * Conversions into the limb representation: build a BigNat from a Dafny nat,
- * and render its limbs. Decimal rendering needs division by 10 and lives with
- * DivMod; here we provide the nat -> limbs direction (proved against Value) and
- * a raw limb dump, both of which need only the core.
+ * Conversion into the limb representation: build a BigNat from a Dafny nat,
+ * proved against Value(). This direction needs only the core. (The reverse
+ * decimal rendering needs repeated division by 10 and is not provided here.)
  *******************************************************************************/
 
 include "BigNat.dfy"

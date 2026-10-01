@@ -6,8 +6,9 @@
  * denoted. Zero is canonical: magnitude [] with negative == false, so there is
  * no "-0".
  *
- * Addition, subtraction, multiplication, comparison and negation are reduced to
- * the verified BigNat operations. GCD needs division and arrives with DivMod.
+ * Addition, subtraction, multiplication, comparison, negation and abs are
+ * reduced to the verified BigNat operations. GCD is sign-independent and lives
+ * on the unsigned layer (BigNatGCD); signed division is not provided here.
  *******************************************************************************/
 
 include "BigNat.dfy"
@@ -76,6 +77,7 @@ module BigInt {
   function Abs(x: Int): (r: Int)
     requires Wf(x)
     ensures Wf(r)
+    ensures IntValue(r) >= 0
     ensures IntValue(r) == if IntValue(x) < 0 then -IntValue(x) else IntValue(x)
   {
     Int(false, x.mag)
