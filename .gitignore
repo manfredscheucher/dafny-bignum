@@ -15,3 +15,11 @@ out/
 *.runtimeconfig.json
 *.deps.json
 .DS_Store
+
+# `dafny run` emits these next to the source .dfy (generated, not source)
+examples/*.cs
+examples/*.csproj
+# compiled binaries dropped by `dafny run` (no extension) under examples/
+examples/demo
+test/*.cs
+test/*.csproj
