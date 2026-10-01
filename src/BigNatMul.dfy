@@ -16,6 +16,8 @@
  * file verifies against BigNat.dfy alone.
  *******************************************************************************/
 
+include "BigNat.dfy"
+
 module BigNatMul {
 
   import opened BigNat
