@@ -35,6 +35,7 @@ Requires a `dafny` on PATH (developed against 4.11).
 
 ## Status
 
-Core representation is verified. Add/Sub/Compare and Mul are in progress;
-DivMod (long division) is the hard proof and comes next; signed `BigInt` + gcd
-and `Rational` sit on top. See `doc/SPEC.md`.
+Verified: BigNat core, Compare/Add/Sub, Mul, DivMod (recursive binary long
+division), Euclidean gcd, FromNat, and signed `BigInt` (add/sub/mul/compare/
+negate/abs). `Rational` (num/den, gcd-reduced) sits on top. `scripts/verify.sh`
+checks the whole tree with no `assume`/`axiom`. See `doc/SPEC.md`.

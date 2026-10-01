@@ -47,12 +47,31 @@ made explicit to the user before building.
 ## Module map
 
 - `src/BigNat.dfy` — representation core. `Value`, `Normalize`, `Pow2_32`,
-  `ValueBound`, `ValueAppend`, zero-uniqueness. **Verified.**
-- `src/BigNatAddSub.dfy` — `Add`, `Sub`, `Compare` vs `Value()`.
-- `src/BigNatMul.dfy` — schoolbook `Mul` vs `Value()`.
-- `src/BigNatDivMod.dfy` — Euclidean division/modulo (the hardest proof).
-- `src/BigInt.dfy` — signed wrapper (sign + magnitude) + `GCD`.
-- `src/Rational.dfy` — `num`/`den` over `BigInt`, gcd-reduced.
+  `ValueBound`, `ValueAppend`, zero-uniqueness. **Verified (22).**
+- `src/BigNatAddSub.dfy` — `Add`, `Sub`, `Compare` vs `Value()`. **Verified (35).**
+- `src/BigNatMul.dfy` — schoolbook `Mul` vs `Value()`. **Verified (39).**
+- `src/BigNatDivMod.dfy` — division/modulo by recursive binary long division,
+  `Value(xs) == Value(q)*Value(ys) + Value(r)`, `Value(r) < Value(ys)`. The
+  hardest proof. **Verified (67).**
+- `src/BigNatGCD.dfy` — Euclidean gcd, proved against a mathematical `IsGCD`
+  predicate. **Verified (16).**
+- `src/BigNatConv.dfy` — `FromNat` (nat → limbs). **Verified (5).**
+- `src/BigInt.dfy` — signed sign+magnitude wrapper: `Add` `Sub` `Mul` `Compare`
+  `Negate` `Abs` vs `IntValue()`. **Verified (11).**
+- `src/Rational.dfy` — `num`/`den` over `BigInt`, kept in lowest terms via gcd.
+
+## Z3 instability note (important for anyone extending this)
+
+Nonlinear products of recursive functions (`Value(q)*Value(ys)`, `IntValue`,
+etc.) make Z3 unstable here: a lemma can time out just setting up a context
+whose precondition contains such a product, independent of its body. The fix
+used throughout: keep `Value()`/`IntValue()` out of any nonlinear context — bind
+them to plain `nat`/`int` locals up front, form each product once as an opaque
+local, and push all multiplication algebra into pure nat/int helper lemmas
+(`FoldArithSub`, `HalfRecArith`, `ParityCombineNat`, `MulSignValue`, the gcd
+`Divides*` lemmas). `@IsolateAssertions` helps only once the recursion is gone
+from the context. Module-wide `@DisableNonlinearArithmetic` was tried and made
+it worse (broke the small multiplication lemmas), so it is not used.
 
 ## Scope: minimal, not fast
 
