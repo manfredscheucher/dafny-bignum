@@ -39,7 +39,7 @@ made explicit to the user before building.
 | Decision | Choice | Why |
 |---|---|---|
 | Not modular bignum | plain signed arbitrary-precision int | The user's need is Dafny's `int` semantics (unbounded signed), not fixed-modulus/constant-time crypto. A separate modular-bigint project exists and is explicitly out of scope. |
-| Limb type | `bv32`, base `2^32` | A single-limb product fits exactly in `bv64` (2^32·2^32 = 2^64), so the multiplication proof needs no 128-bit reasoning. Chosen over bv64 for provability first; bv64 is a phase-2 speed option. |
+| Limb type | `newtype limb = i:int \| 0 <= i < 2^32`, base `2^32` | **Revised from `bv32`.** The bv32 choice forced bit-vector↔nat casts in every carry/borrow/mul step, and Z3 times out on those casts even in isolation (see `test/nat_limb_feasibility.dfy`). A nat-backed limb makes all carry logic plain nat arithmetic (`% BASE`, `/ BASE`) — cheap for Z3 and exactly what Dafny's own `Std.Arithmetic.LittleEndianNat` does (`digit = i:nat \| 0 <= i < BASE()`). Products are just nats (`x*m+c`), so no 64-bit fit is needed. Translates to a native 32-bit integer in C++. |
 | Representation | little-endian `seq<limb>`, LSB first, normalized (no leading zero limb) | Unique representation, `[]` is canonical zero. Mirrors Dafny stdlib `LittleEndianNat`. |
 | Proof approach | build on the structure of `Std.Arithmetic.LittleEndianNat` | Proven lemma structure (ToNat, SeqAdd/SeqSub carry/borrow) reused, rewritten for concrete bv32 limbs and our `Value()` spec. Far less proof risk than from scratch. |
 | Repo name | `dafny-bignum` | Covers the integer core; Rational sits on top. |
@@ -61,6 +61,22 @@ Newton/Knuth-D division, no limb-level micro-optimisation. Only the minimum an
 arbitrary-precision int + rational needs: schoolbook add/sub/mul, plain long
 division, Euclidean gcd, gcd-reduced rationals. Simple and verifiable beats
 fast. Speed is a possible phase-2 concern, deliberately out of scope here.
+
+## Word width in the proof vs. in generated C++
+
+A note, because it is easy to conflate the two:
+
+- **In the Dafny proof model** limbs are nat-backed and arithmetic runs in
+  unbounded `nat`. `x + y + carry` and `x*m + carry` are just nats; the carry is
+  `s / BASE`, the digit is `s % BASE`. There is no fixed-width container, so no
+  overflow question — the width (`< 2^32`) is only the digit invariant, not the
+  type things are computed in.
+- **In generated native C++ (phase 2)** the fixed-width argument returns: with
+  32-bit limbs, an addition needs a 64-bit intermediate (two 32-bit values plus
+  carry is up to 33 bits) and a multiplication needs 64 bits (32×32 → up to 64);
+  64-bit limbs would need 128-bit intermediates. That belongs in the codegen /
+  runtime layer, not in the verified nat model. 32-bit limbs were chosen partly
+  so the native mul intermediate is a plain `uint64`, not `__uint128`.
 
 ## Verification contract
 

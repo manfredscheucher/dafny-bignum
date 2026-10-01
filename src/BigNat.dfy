@@ -22,10 +22,18 @@ module BigNat {
   // proof free of any 128-bit reasoning.
   const BASE: nat := 0x1_0000_0000 // 2^32
 
-  type limb = bv32
+  // A limb is a nat-backed digit in [0, BASE). Using a nat-backed newtype
+  // (rather than bv32) keeps all carry/borrow/mul reasoning in plain nat
+  // arithmetic, which the SMT solver handles cheaply; bit-vector<->nat casts
+  // time out even in isolation. Translates to a native 32-bit integer.
+  newtype limb = i: int | 0 <= i < 0x1_0000_0000
 
   // A limb interpreted as a nat, always in [0, BASE).
   function L(x: limb): nat { x as nat }
+
+  lemma LimbBound(x: limb)
+    ensures 0 <= L(x) < BASE
+  {}
 
   //////////////////////////////////////////////////////////////////////////////
   // Value: limbs -> nat  (little-endian, least significant first)
