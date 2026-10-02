@@ -35,7 +35,12 @@ Requires a `dafny` on PATH (developed against 4.11).
 
 ## Status
 
-Verified: BigNat core, Compare/Add/Sub, Mul, DivMod (recursive binary long
-division), Euclidean gcd, FromNat, and signed `BigInt` (add/sub/mul/compare/
-negate/abs). `Rational` (num/den, gcd-reduced) sits on top. `scripts/verify.sh`
-checks the whole tree with no `assume`/`axiom`. See `doc/SPEC.md`.
+All verified (`scripts/verify.sh`, 0 errors, no `assume`/`axiom`): BigNat core,
+Compare/Add/Sub, Mul, DivMod (recursive binary long division), Euclidean gcd,
+FromNat, signed `BigInt` (add/sub/mul/compare/negate/abs), and `Rational`
+(add/sub/mul/compare, gcd-reduced) against a `real` value. Regression tests and
+a runnable demo included.
+
+Not done: the Phase-2 step that actually removes the Boost dependency (rewriting
+the internals to fixed-width `uint64` instead of Dafny's unbounded `nat`). See
+the open items in `doc/SPEC.md` — this is the real test of the whole idea.

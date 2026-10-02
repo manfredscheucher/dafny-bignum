@@ -53,12 +53,21 @@ made explicit to the user before building.
 - `src/BigNatDivMod.dfy` — division/modulo by recursive binary long division,
   `Value(xs) == Value(q)*Value(ys) + Value(r)`, `Value(r) < Value(ys)`. The
   hardest proof. **Verified (67).**
-- `src/BigNatGCD.dfy` — Euclidean gcd, proved against a mathematical `IsGCD`
-  predicate. **Verified (16).**
+- `src/BigNatGCD.dfy` — Euclidean gcd (`gcd(a,b)=gcd(b, a mod b)`), proved
+  against a mathematical `IsGCD` predicate. **Verified (16).**
 - `src/BigNatConv.dfy` — `FromNat` (nat → limbs). **Verified (5).**
 - `src/BigInt.dfy` — signed sign+magnitude wrapper: `Add` `Sub` `Mul` `Compare`
   `Negate` `Abs` vs `IntValue()`. **Verified (11).**
+- `src/PureArith.dfy` — pure nat/int/real helper lemmas, deliberately with no
+  BigNat import so the recursive `Value` axioms stay out of their context (see
+  the Z3 note below). **Verified (25).**
 - `src/Rational.dfy` — `num`/`den` over `BigInt`, kept in lowest terms via gcd.
+  `Add` `Sub` `Mul` `Compare` vs `RatValue()` (a `real`). `Make` is `opaque` so
+  its gcd reduction does not unfold into callers' Z3 context. **Verified (138).**
+
+The whole tree (`scripts/verify.sh`) verifies with 0 errors and no `assume`,
+`{:axiom}` or `{:verify false}`. Regression tests under `test/` (themselves
+verified lemmas) check concrete results for each layer; `examples/demo.dfy` runs.
 
 ## Z3 instability note (important for anyone extending this)
 
@@ -105,5 +114,32 @@ proof-suppressing `assert`. `scripts/verify.sh` verifies the whole `src/` tree.
 
 ## Open items / TODO
 
-- DivMod full proof (long division quotient estimation) — the known hard part.
-- Phase-2 runtime integration is out of scope here.
+**Phase 2 is where the boost dilemma is actually settled — and it is not done.**
+Phase 1 (this repo) is a standalone, fully verified library. But every operation
+is specified against `Value(): nat` and computes its carries in Dafny's
+unbounded `nat`/`int`. In generated C++, Dafny `nat`/`int` *is* `DafnyInt` =
+Boost `cpp_int`. So a naive translation of this library would pull Boost back in
+for its own intermediate values. Replacing Boost needs the fixed-width rewrite
+(carries in `uint64`, sequence lengths/indices on bounded types rather than the
+runtime big int) — and the Phase-1 proofs do **not** carry over automatically,
+because that step replaces the computation model. Recommended next move: a small
+spike on ONE operation (e.g. `AddCarry` specified against `uint64` bounds) to
+check whether its C++ output is Boost-free, before building further. Until that
+spike, "verified in Dafny → translate → Boost gone" is an assumption, not a
+result. (Flagged by an independent concept review.)
+
+- **GCD algorithm:** `BigNatGCD` uses textbook Euclid (`gcd(a,b)=gcd(b,a mod b)`),
+  worst case Fibonacci-many steps — not the `min(p%q, q-(p%q))` variant. Purely a
+  performance choice (repo scope is "no perf work"); correctness of reduction is
+  unaffected. Open for Manfred to decide if the variant is wanted.
+- **Performance unmeasured:** DivMod is recursive binary long division
+  (quadratic in bit length). Fine for a verified lib; as a Boost *replacement* a
+  micro-benchmark against a realistic baseline is still owed before calling it
+  "simple beats fast".
+- **Duplicated lemmas:** small multiplication/commutativity lemmas (`MulComm`,
+  `MulAssoc`, distributivity) still appear in several modules; `PureArith.dfy`
+  now exists as the home to consolidate them into. Mechanical cleanup, not yet
+  done (touching verified files risks destabilising proofs — do it carefully).
+- **`Value` is a non-ghost function** used in demos' `print`. Marking it `ghost`
+  (with a separate executable `ToNat` for demos) would make the math-vs-runtime
+  boundary explicit. Minor.
