@@ -117,6 +117,41 @@ module PureArith {
     ensures (a * b) as real == (a as real) * (b as real)
   {}
 
+  // If p == a*b (nats), then (p as real) == (a as real)*(b as real). Lets the
+  // caller pass the already-formed product p so no nat*nat is built in its scope.
+  lemma CastProd(p: nat, a: nat, b: nat)
+    requires p == a * b
+    ensures (p as real) == (a as real) * (b as real)
+  {
+    CastMul(a, b);
+  }
+
+  // Int version: p == a*b (ints) ==> (p as real) == (a as real)*(b as real).
+  lemma CastProdInt(p: int, a: int, b: int)
+    requires p == a * b
+    ensures (p as real) == (a as real) * (b as real)
+  {}
+
+  // Mixed int*nat: p == a * (b as int) ==> real casts multiply.
+  lemma CastProdIntNat(p: int, a: int, b: nat)
+    requires p == a * (b as int)
+    ensures (p as real) == (a as real) * (b as real)
+  {}
+
+  // Product of two positive nats is positive (given the product p).
+  lemma MulPosPos(a: nat, b: nat, p: nat)
+    requires a > 0 && b > 0 && p == a * b
+    ensures p > 0
+  {
+    MulLowerBound(a, b);   // a >= 1, b > 0 ==> a*b >= b > 0
+  }
+
+  // Negating the numerator negates the fraction.
+  lemma NegFrac(a: real, b: real)
+    requires b != 0.0
+    ensures (-a) / b == -(a / b)
+  {}
+
   // Real sign-cast identity for the reduction: if the integers iNew, iOld and
   // the nat factor vg satisfy iNew == s*vqa, iOld == s*vn (s == 1 or -1) and
   // vn == vqa*vg, then (iNew as real)*(vg as real) == iOld as real.
@@ -130,15 +165,32 @@ module PureArith {
     assert (vn as real) == (vqa as real) * (vg as real);
   }
 
-  // Pure-nat core of the gcd reduction. g divides va and vd (witnesses ka, kd),
-  // and DivMod gave va == vqa*g + vra (vra < g), vd == vqd*g + vrd (vrd < g).
-  // Then the remainders vanish, the quotients are exact, and vqd > 0 (vd > 0).
+  // Final real identity of the gcd reduction: the reduced fraction nn/qdr equals
+  // the original no/vd. Given no == nn*gr and vd == qdr*gr with qdr,gr > 0.
+  lemma ReduceFracReal(nn: real, no: real, qdr: real, gr: real, vd: real)
+    requires qdr > 0.0 && gr > 0.0
+    requires no == nn * gr
+    requires vd == qdr * gr
+    ensures nn / qdr == no / vd
+  {
+    RealCancel(nn, qdr, gr);   // (nn*gr)/(qdr*gr) == nn/qdr
+    assert no / vd == (nn * gr) / (qdr * gr);
+  }
+
+  // Pure-nat core of the gcd reduction. g divides va and vd (as the plain
+  // existential `exists k :: n == vg*k`, i.e. BigNatGCD.DividesNat unfolded), and
+  // DivMod gave va == vqa*g + vra (vra < g), vd == vqd*g + vrd (vrd < g). Then the
+  // remainders vanish, the quotients are exact, and vqd > 0 (vd > 0).
+  //
+  // The witnesses ka, kd are extracted HERE, inside a module with no bignum
+  // axioms in scope, so the nonlinear `:|` does not destabilise Z3 (doing it in
+  // the Rational seq-wrapper, where Value's recursive axioms are visible, times
+  // out).
   lemma ReduceExactNat(va: nat, vd: nat, vg: nat,
-                       vqa: nat, vra: nat, vqd: nat, vrd: nat,
-                       ka: nat, kd: nat)
+                       vqa: nat, vra: nat, vqd: nat, vrd: nat)
     requires vg > 0 && vd > 0
-    requires va == vg * ka
-    requires vd == vg * kd
+    requires exists k: nat :: va == vg * k
+    requires exists k: nat :: vd == vg * k
     requires va == vqa * vg + vra && vra < vg
     requires vd == vqd * vg + vrd && vrd < vg
     ensures vra == 0 && vrd == 0
@@ -146,6 +198,8 @@ module PureArith {
     ensures vd == vqd * vg
     ensures vqd > 0
   {
+    var ka :| va == vg * ka;
+    var kd :| vd == vg * kd;
     ExactQuotient(va, vg, vqa, vra, ka);
     ExactQuotient(vd, vg, vqd, vrd, kd);
     if vqd == 0 {
