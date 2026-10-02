@@ -22,6 +22,19 @@ Recommended first step: a spike on ONE operation (e.g. `AddCarry`) re-specified
 against `uint64` bounds, then inspect the generated C++ — is it Boost-free? That
 answers the viability of the entire project while the library is still small.
 
+### Why this is worth it — the real maintainer argument
+Checked across Dafny's runtimes (see `dafny/_private/cpp/NOTES_bignum_real_across_targets.md`):
+`real` is a hand-written num/den `BigRational` in **four** backends (C#, Java,
+JS, C++) — not shared code, the same gcd-normalize/IsPowerOf10/DividesAPowerOf10/
+ToString logic re-written per language, partly verbatim copy-paste (an identical
+comment appears in C# `DafnyRuntime.cs:2093` and Java `BigRational.java:159`).
+Plus external int deps: JS `bignumber.js`, Rust `num`, C++ Boost. A bignum
+proved in Dafny only needs `int`; `real` falls out as the num/den pair on top
+(this repo's `DafnyReal`). So `--bignum=dafny` would replace four duplicated
+hand-written BigRationals **and** three external int libraries with one verified,
+target-independent implementation. That is the case for it being "the way to
+go", not a nicety. (Belongs in the upstream issue, phrased human/short.)
+
 ## Performance (all optional; measure before committing to any)
 
 ### DivMod: bit-wise → limb-wise (~32× constant factor)  — recommended: leave
@@ -60,12 +73,18 @@ limit (passes at 45s). Z3 variance, but it means one GCD proof is too close to
 the edge. Tighten it (bind values to nats earlier / split the lemma) so it
 verifies comfortably and deterministically. Same pattern used elsewhere.
 
-### test/nat_limb_feasibility.dfy is a doc probe, not a passing test
-It deliberately contains an unproved obligation (the bv-vs-nat feasibility
-experiment that motivated nat-backed limbs). It must NOT be in the set
-`verify.sh` treats as "must pass" — it currently makes the script report
-VERIFICATION FAILED. Either move it out of `test/` (e.g. to `doc/experiments/`)
-or mark it clearly as expected-to-fail. See also `doc/bv-model-abandoned.dfy.txt`.
+### test/nat_limb_feasibility.dfy  — DONE
+Was a deliberately-failing doc probe; now proved (`MulFits` closed) and moved to
+`doc/experiments/`. `verify.sh` is green again. Kept here for history.
+
+### DafnyReal.ToString string assembly  — should finish
+`src/DafnyReal.dfy` models Dafny's `BigRational` and is verified for all
+arithmetic (Normalize/Add/Sub/Neg/Mul/Div/Compare vs `RealValue`) and the
+numeric core of the decimal-print path (`IsPowerOf10` ⇒ `x==Pow10(l)`,
+`DividesAPowerOf10` ⇒ `factor*i==Pow10(log10)`). NOT yet done: the executable
+string body of `ToString` (repeated BigInt division by 10 + substring/sign/
+zero-padding), which needs a verified BigInt→decimal-string routine the library
+lacks. Left as an explicit gap with no false `ensures`, not faked.
 
 ## Polish
 

@@ -86,17 +86,25 @@ Consequences:
 - `src/BigNatDivMod.dfy` — division/modulo by recursive binary long division,
   `Value(xs) == Value(q)*Value(ys) + Value(r)`, `Value(r) < Value(ys)`. The
   hardest proof. **Verified (67).**
-- `src/BigNatGCD.dfy` — Euclidean gcd (`gcd(a,b)=gcd(b, a mod b)`), proved
-  against a mathematical `IsGCD` predicate. **Verified (16).**
+- `src/BigNatGCD.dfy` — Euclidean gcd (`gcd(a,b)=gcd(b, a mod b)`) plus `GCDFast`
+  (least-absolute-remainder variant), both proved against a mathematical `IsGCD`
+  predicate. **Verified (42).**
 - `src/BigNatConv.dfy` — `FromNat` (nat → limbs). **Verified (5).**
 - `src/BigInt.dfy` — signed sign+magnitude wrapper: `Add` `Sub` `Mul` `Compare`
   `Negate` `Abs` vs `IntValue()`. **Verified (11).**
 - `src/PureArith.dfy` — pure nat/int/real helper lemmas, deliberately with no
   BigNat import so the recursive `Value` axioms stay out of their context (see
-  the Z3 note below). **Verified (25).**
-- `src/Rational.dfy` — `num`/`den` over `BigInt`, kept in lowest terms via gcd.
-  `Add` `Sub` `Mul` `Compare` vs `RatValue()` (a `real`). `Make` is `opaque` so
-  its gcd reduction does not unfold into callers' Z3 context. **Verified (138).**
+  the Z3 note below). **Verified (~69).**
+- `src/DafnyReal.dfy` — **the `real` layer**: a verified counterpart of Dafny's
+  runtime `BigRational`. Unreduced `num`/`den` over `BigInt`; `Normalize` (gcd of
+  denominators), `Add` `Sub` `Neg` `Mul` `Div` `Compare` vs `RealValue()` (a
+  `real`); plus the verified numeric core of the decimal-print path
+  (`IsPowerOf10`, `DividesAPowerOf10`). The `ToString` string assembly is an
+  explicit gap (see TODO). **Verified (106).**
+- `src/Rational.dfy` — a *mathematical* rational, kept in lowest terms via gcd
+  (`Make` opaque). Verified, but the auto-reduction is the WRONG semantics for
+  Dafny's `real` — use `DafnyReal` for that. Parked; kept as a correct rational.
+  **Verified (142).**
 
 The whole tree (`scripts/verify.sh`) verifies with 0 errors and no `assume`,
 `{:axiom}` or `{:verify false}`. Regression tests under `test/` (themselves
