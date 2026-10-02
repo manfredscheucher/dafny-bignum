@@ -86,6 +86,7 @@ module BigNatGCD {
   // Here the recursive call gives IsGCD(Value(GCD(ys,r)), Value(ys), Value(r));
   // we need IsGCD(same g, Value(xs), Value(ys)). Both directions of
   // "common divisors of (a,b) == common divisors of (b,r)" are needed.
+  @IsolateAssertions
   lemma GCDStep(xs: seq<limb>, ys: seq<limb>, q: seq<limb>, r: seq<limb>)
     requires Normalized(xs) && Normalized(ys) && Normalized(q) && Normalized(r)
     requires Value(xs) == Value(q) * Value(ys) + Value(r)
