@@ -257,4 +257,115 @@ module BigNatGCD {
       assert ys == [];
     }
   }
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Least-absolute-remainder variant.
+  //
+  // Same spec as GCD, but each step replaces the remainder r = a mod b by the
+  // smaller of r and b-r (both in [0, b)), so the remainder at least halves
+  // every step instead of following the Fibonacci worst case. gcd(b, b-r) ==
+  // gcd(b, r) because a common divisor of b and r divides b-r and vice versa,
+  // so the result is unchanged. Still O(1) extra work per step; only the step
+  // count improves. GCD above is kept as the reference implementation.
+  //////////////////////////////////////////////////////////////////////////////
+
+  function GCDFast(xs: seq<limb>, ys: seq<limb>): (g: seq<limb>)
+    requires Normalized(xs) && Normalized(ys)
+    ensures Normalized(g)
+    ensures IsGCD(Value(g), Value(xs), Value(ys))
+    decreases Value(ys)
+  {
+    if IsZero(ys) then
+      GCDBaseZero(xs, ys);
+      xs
+    else
+      NonEmptyPositive(ys);
+      var (q, r) := DivMod(xs, ys);
+      // 0 <= Value(r) < Value(ys), so Sub(ys, r) is legal and bMinusR = ys - r.
+      var bMinusR := Sub(ys, r);
+      if Compare(r, bMinusR) <= 0 then
+        // rSmall == r < ys: ordinary Euclid step.
+        GCDStep(xs, ys, q, r);
+        GCDFast(ys, r)
+      else
+        // rSmall == b - r. Compare > 0 gives Value(r) > Value(bMinusR), so
+        // Value(r) > 0 and hence Value(bMinusR) == ys - r < ys (termination).
+        SubBranchDecr(ys, r, bMinusR);
+        GCDFastStepSub(xs, ys, q, r, bMinusR);
+        GCDFast(ys, bMinusR)
+  }
+
+  // In the b-r branch Value(r) > Value(bMinusR) == Value(ys) - Value(r), which
+  // forces Value(bMinusR) < Value(ys). Isolated so the decreases check sees a
+  // plain nat inequality.
+  lemma SubBranchDecr(ys: seq<limb>, r: seq<limb>, bMinusR: seq<limb>)
+    requires Normalized(ys) && Normalized(r) && Normalized(bMinusR)
+    requires Value(bMinusR) == Value(ys) - Value(r)
+    requires Value(r) < Value(ys)
+    requires Value(r) > Value(bMinusR)
+    ensures Value(bMinusR) < Value(ys)
+  {
+    // Value(r) > Value(ys) - Value(r) ==> 2*Value(r) > Value(ys) > 0 ==>
+    // Value(r) > 0 ==> Value(ys) - Value(r) < Value(ys).
+  }
+
+  // Transfers the gcd spec across one GCDFast step and justifies termination.
+  // rSmall is r or (ys - r); either way its common divisors with ys match those
+  // of r, so IsGCD(g, ys, rSmall) ==> IsGCD(g, xs, ys), and Value(rSmall) < ys.
+  // The b-r branch: gcd(ys, ys-r) == gcd(ys, r) == gcd(xs, ys). Same forall-shape
+  // as GCDStep (which verifies), with one extra reflection lemma per divisor.
+  lemma GCDFastStepSub(xs: seq<limb>, ys: seq<limb>, q: seq<limb>, r: seq<limb>,
+                       bMinusR: seq<limb>)
+    requires Normalized(xs) && Normalized(ys) && Normalized(q) && Normalized(r)
+    requires Normalized(bMinusR)
+    requires Value(xs) == Value(q) * Value(ys) + Value(r)
+    requires Value(r) < Value(ys)
+    requires Value(bMinusR) == Value(ys) - Value(r)
+    ensures forall g: nat ::
+              IsGCD(g, Value(ys), Value(bMinusR)) ==> IsGCD(g, Value(xs), Value(ys))
+  {
+    var a := Value(xs);
+    var b := Value(ys);
+    var qq := Value(q);
+    var rr := Value(r);
+    forall g: nat | IsGCD(g, b, b - rr)
+      ensures IsGCD(g, a, b)
+    {
+      GCDSubReflect(b, rr, g);        // IsGCD(g, b, b-rr) ==> IsGCD(g, b, rr)
+      GCDStepOne(a, b, qq, rr, g);    // ==> IsGCD(g, a, b)
+    }
+  }
+
+  // gcd(b, b-r) and gcd(b, r) have the same common divisors, so a gcd of one is
+  // a gcd of the other. Pure nat; needs r <= b.
+  lemma GCDSubReflect(b: nat, r: nat, g: nat)
+    requires r <= b
+    requires IsGCD(g, b, b - r)
+    ensures IsGCD(g, b, r)
+  {
+    // g divides b and (b-r), hence r == b - (b-r).
+    assert DividesNat(g, b);
+    assert DividesNat(g, b - r);
+    DividesSub(g, b, b - r, r);         // g | b && g | (b-r) ==> g | r
+    // Any common divisor d of (b, r) also divides (b-r), so it divides g.
+    forall d: nat | DividesNat(d, b) && DividesNat(d, r)
+      ensures DividesNat(d, g)
+    {
+      DividesSub(d, b, r, b - r);       // d | b && d | r ==> d | (b-r)
+      assert DividesNat(d, b) && DividesNat(d, b - r);
+      assert DividesNat(d, g);          // g gcd of (b, b-r)
+    }
+  }
+
+  // g | x && g | y && z == x - y (x >= y)  ==>  g | z.
+  lemma DividesSub(g: nat, x: nat, y: nat, z: nat)
+    requires x >= y && z == x - y
+    requires DividesNat(g, x) && DividesNat(g, y)
+    ensures DividesNat(g, z)
+  {
+    var kx :| x == g * kx;
+    var ky :| y == g * ky;
+    // z == x - y == g*kx - g*ky == g*(kx - ky), and z >= 0.
+    DividesRemainderWitness(g, kx, ky, z);
+  }
 }
