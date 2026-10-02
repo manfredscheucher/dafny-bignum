@@ -314,6 +314,7 @@ module BigNatGCD {
   // of r, so IsGCD(g, ys, rSmall) ==> IsGCD(g, xs, ys), and Value(rSmall) < ys.
   // The b-r branch: gcd(ys, ys-r) == gcd(ys, r) == gcd(xs, ys). Same forall-shape
   // as GCDStep (which verifies), with one extra reflection lemma per divisor.
+  @IsolateAssertions
   lemma GCDFastStepSub(xs: seq<limb>, ys: seq<limb>, q: seq<limb>, r: seq<limb>,
                        bMinusR: seq<limb>)
     requires Normalized(xs) && Normalized(ys) && Normalized(q) && Normalized(r)
