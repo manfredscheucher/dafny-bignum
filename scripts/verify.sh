@@ -8,7 +8,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 TIME_LIMIT="${DAFNY_TIME_LIMIT:-60}"   # seconds per verification, override via env
-FILES=(src/*.dfy)
+# Verify the library, the regression-test lemmas, and the runnable examples.
+# test/*.dfy ARE the regression tests (proved lemmas), so they belong in CI.
+FILES=(src/*.dfy test/*.dfy examples/*.dfy)
 
 fail=0
 for f in "${FILES[@]}"; do

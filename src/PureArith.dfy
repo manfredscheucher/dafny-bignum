@@ -56,7 +56,7 @@ module PureArith {
     ensures a / b == c / d <==> a * d == c * b
     ensures a / b > c / d <==> a * d > c * b
   {
-    // Multiply through by the positive product b*d.
+    // Z3 discharges this directly (real linear arithmetic with b,d > 0).
   }
 
   //////////////////////////////////////////////////////////////////////////////
