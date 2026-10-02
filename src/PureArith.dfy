@@ -1,0 +1,156 @@
+/*******************************************************************************
+ * dafny-bignum: PureArith
+ *
+ * Pure real- and nat-arithmetic helper lemmas, with NO dependency on the bignum
+ * layer. Keeping these in a module that never sees Value/BigNat means the SMT
+ * solver has none of the recursive bignum function axioms in scope, so the
+ * nonlinear real/nat products here verify stably (in the full Rational context
+ * the same lemmas time out because Z3 drifts into the recursive axioms).
+ *******************************************************************************/
+
+module PureArith {
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Real fraction identities.
+  //////////////////////////////////////////////////////////////////////////////
+
+  // Cancelling a common nonzero factor g from numerator and denominator.
+  lemma RealCancel(a: real, b: real, g: real)
+    requires b != 0.0 && g != 0.0
+    ensures (a * g) / (b * g) == a / b
+  {
+    calc {
+      (a * g) / (b * g);
+      == { assert b * g != 0.0; }
+      (a / b) * (g / g);
+      == { assert g / g == 1.0; }
+      a / b;
+    }
+  }
+
+  // Sum of two fractions over a common cross-denominator.
+  lemma RealAddFrac(a: real, b: real, c: real, d: real)
+    requires b != 0.0 && d != 0.0
+    ensures a / b + c / d == (a * d + c * b) / (b * d)
+  {
+    calc {
+      a / b + c / d;
+      == (a * d) / (b * d) + (c * b) / (d * b);
+      == { assert d * b == b * d; }
+      (a * d) / (b * d) + (c * b) / (b * d);
+      == (a * d + c * b) / (b * d);
+    }
+  }
+
+  // Product of two fractions.
+  lemma RealMulFrac(a: real, b: real, c: real, d: real)
+    requires b != 0.0 && d != 0.0
+    ensures (a / b) * (c / d) == (a * c) / (b * d)
+  {
+  }
+
+  // Sign of (a*d - c*b) decides the order of a/b and c/d when b,d > 0.
+  lemma RealCompareFrac(a: real, b: real, c: real, d: real)
+    requires b > 0.0 && d > 0.0
+    ensures a / b < c / d <==> a * d < c * b
+    ensures a / b == c / d <==> a * d == c * b
+    ensures a / b > c / d <==> a * d > c * b
+  {
+    // Multiply through by the positive product b*d.
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Nat division / multiplication facts.
+  //////////////////////////////////////////////////////////////////////////////
+
+  lemma MulComm(a: nat, b: nat) ensures a * b == b * a {}
+
+  lemma MulMonoRight(a: nat, b: nat, c: nat)
+    requires a <= b
+    ensures a * c <= b * c
+  {}
+
+  lemma DistribRight(a: nat, b: nat, c: nat)
+    ensures (a + b) * c == a * c + b * c
+  {}
+
+  lemma MulLowerBound(a: nat, d: nat)
+    requires a >= 1 && d > 0
+    ensures a * d >= d
+  {
+    assert a * d >= 1 * d by { MulMonoRight(1, a, d); }
+  }
+
+  // q*d + r == k*d with 0 <= r < d forces r == 0, q == k.
+  lemma UniqueDivMod(d: nat, q: nat, r: nat, k: nat)
+    requires d > 0 && r < d
+    requires q * d + r == k * d
+    ensures r == 0 && q == k
+  {
+    if q < k {
+      // (k-q)*d == r < d, but k-q >= 1 so (k-q)*d >= d. Contradiction.
+      MulLowerBound(k - q, d);
+      assert (k - q) * d == r;
+    } else if q > k {
+      // r == k*d - q*d == -(q-k)*d < 0, impossible for nat r.
+      MulLowerBound(q - k, d);
+      assert q * d == k * d + r;
+      assert (q - k) * d + k * d == q * d by { DistribRight(q - k, k, d); }
+    }
+  }
+
+  // If d divides n (n == d*k) and DivMod gives n == q*d + r with r < d, then
+  // r == 0 and q == k. Pure nat reasoning (division is unique).
+  lemma ExactQuotient(n: nat, d: nat, q: nat, r: nat, k: nat)
+    requires d > 0
+    requires n == q * d + r && r < d
+    requires n == d * k
+    ensures r == 0 && q == k
+  {
+    assert d * k == k * d by { MulComm(d, k); }
+    assert q * d + r == k * d;
+    UniqueDivMod(d, q, r, k);
+  }
+
+  // (a*b) as real == (a as real)*(b as real) for nats.
+  lemma CastMul(a: nat, b: nat)
+    ensures (a * b) as real == (a as real) * (b as real)
+  {}
+
+  // Real sign-cast identity for the reduction: if the integers iNew, iOld and
+  // the nat factor vg satisfy iNew == s*vqa, iOld == s*vn (s == 1 or -1) and
+  // vn == vqa*vg, then (iNew as real)*(vg as real) == iOld as real.
+  lemma SignCastMul(iNew: int, iOld: int, vqa: nat, vg: nat, vn: nat, neg: bool)
+    requires vn == vqa * vg
+    requires iNew == (if neg then -(vqa as int) else vqa as int)
+    requires iOld == (if neg then -(vn as int) else vn as int)
+    ensures (iNew as real) * (vg as real) == iOld as real
+  {
+    CastMul(vqa, vg);
+    assert (vn as real) == (vqa as real) * (vg as real);
+  }
+
+  // Pure-nat core of the gcd reduction. g divides va and vd (witnesses ka, kd),
+  // and DivMod gave va == vqa*g + vra (vra < g), vd == vqd*g + vrd (vrd < g).
+  // Then the remainders vanish, the quotients are exact, and vqd > 0 (vd > 0).
+  lemma ReduceExactNat(va: nat, vd: nat, vg: nat,
+                       vqa: nat, vra: nat, vqd: nat, vrd: nat,
+                       ka: nat, kd: nat)
+    requires vg > 0 && vd > 0
+    requires va == vg * ka
+    requires vd == vg * kd
+    requires va == vqa * vg + vra && vra < vg
+    requires vd == vqd * vg + vrd && vrd < vg
+    ensures vra == 0 && vrd == 0
+    ensures va == vqa * vg
+    ensures vd == vqd * vg
+    ensures vqd > 0
+  {
+    ExactQuotient(va, vg, vqa, vra, ka);
+    ExactQuotient(vd, vg, vqd, vrd, kd);
+    if vqd == 0 {
+      // vd == 0*vg == 0, contradicting vd > 0.
+      assert vd == vqd * vg;
+    }
+  }
+}
