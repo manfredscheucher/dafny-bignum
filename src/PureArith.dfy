@@ -207,4 +207,49 @@ module PureArith {
       assert vd == vqd * vg;
     }
   }
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Coprimality of the reduced numerator/denominator. Divisibility is the plain
+  // existential `exists k :: n == d*k` (matching BigNatGCD.DividesNat unfolded).
+  //////////////////////////////////////////////////////////////////////////////
+
+  // If d divides x (x == d*k), then d*g divides x*g.
+  lemma DivMulRight(d: nat, x: nat, g: nat)
+    requires exists k: nat :: x == d * k
+    ensures exists k: nat :: x * g == (d * g) * k
+  {
+    var k :| x == d * k;
+    MulReassoc(d, k, g);           // (d*k)*g == (d*g)*k
+    assert x * g == (d * g) * k;
+  }
+
+  // (d*k)*g == (d*g)*k, pure reassociation/commutation of nat multiplication.
+  lemma MulReassoc(d: nat, k: nat, g: nat)
+    ensures (d * k) * g == (d * g) * k
+  {}
+
+  // If h == d*g divides g (g == h*k) and g > 0, then d == 1 (so d <= 1).
+  // Because d*g <= g forces d <= 1, and d >= 1 since d*g == g*k > 0.
+  lemma DivisorOfFactorIsOne(d: nat, g: nat)
+    requires g > 0
+    requires exists k: nat :: g == (d * g) * k
+    ensures d == 1
+  {
+    var k :| g == (d * g) * k;
+    // g == d*g*k.  If d == 0: g == 0, contradiction. If d >= 2: d*g*k >= d*g >= 2g > g
+    // unless k == 0, but k == 0 gives g == 0. So d == 1.
+    if d == 0 {
+      assert g == 0 * g * k == 0;
+    } else if d >= 2 {
+      if k == 0 {
+        assert g == 0;
+      } else {
+        // k >= 1: (d*g)*k >= d*g >= 2*g > g.
+        MulMonoRight(1, k, d * g);        // d*g <= (d*g)*k
+        assert d * g <= (d * g) * k;
+        MulMonoRight(2, d, g);            // 2*g <= d*g
+        assert 2 * g <= d * g;
+      }
+    }
+  }
 }

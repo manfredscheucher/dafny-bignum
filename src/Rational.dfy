@@ -93,8 +93,17 @@ module Rational {
     requires BigInt.Wf(num) && Normalized(den) && Value(den) > 0
     ensures Wf(res)
     ensures RatValue(res) == BigInt.IntValue(num) as real / Value(den) as real
+    // Canonical form: the result is in lowest terms (|num| and den coprime).
+    ensures Coprime(Value(res.num.mag), Value(res.den))
   {
     var amag := num.mag;              // |num|, normalized
+    // Shortcut: a zero numerator reduces to 0/1 with no gcd/division needed.
+    // gcd(0, 1) == 1, so the canonical/coprime postcondition holds trivially.
+    if amag == [] then
+      ValueOne();
+      ZeroOverOneCoprime();
+      Rat(BigInt.Zero, One)
+    else
     var g := BigNatGCD.GCD(amag, den);
     GcdDenPositive(amag, den, g);     // Value(g) > 0 (divides den > 0)
     // g divides both amag and den exactly.
@@ -118,7 +127,21 @@ module Rational {
     MakeRealStep(num, qa, g, den, qd, newNum, vn, vqa, vg, vd, vqd);
     assert Value(qd) == vqd;
     assert RatValue(r) == (BigInt.IntValue(newNum) as real) / (vqd as real);
+    // Coprime: the quotients qa, qd are coprime because we divided by the gcd.
+    CoprimeAfterDivide(vn, vd, vg, vqa, vqd);
+    assert Value(r.num.mag) == vqa && Value(r.den) == vqd;
     r
+  }
+
+  // gcd(0, 1) == 1: the zero-numerator shortcut's result is coprime.
+  lemma ZeroOverOneCoprime()
+    ensures Coprime(0, 1)
+  {
+    assert BigNatGCD.DividesNat(1, 0) by { assert 0 == 1 * 0; }
+    assert BigNatGCD.DividesNat(1, 1) by { assert 1 == 1 * 1; }
+    forall d: nat | BigNatGCD.DividesNat(d, 0) && BigNatGCD.DividesNat(d, 1)
+      ensures BigNatGCD.DividesNat(d, 1)
+    {}
   }
 
   // The real-value equation for Make, isolated so its verification context is
@@ -171,6 +194,39 @@ module Rational {
     DividesExists(vg, va);
     DividesExists(vg, vd);
     PureArith.ReduceExactNat(va, vd, vg, vqa, vra, vqd, vrd);
+  }
+
+  // Numerator and denominator are coprime iff their gcd is 1.
+  ghost predicate Coprime(a: nat, b: nat) { BigNatGCD.IsGCD(1, a, b) }
+
+  // Dividing both sides by g == gcd(va, vd) leaves coprime quotients: if
+  // IsGCD(vg, va, vd), vg > 0, va == vqa*vg and vd == vqd*vg, then gcd(vqa,vqd)
+  // is 1. Standard fact "a/gcd and b/gcd are coprime".
+  lemma CoprimeAfterDivide(va: nat, vd: nat, vg: nat, vqa: nat, vqd: nat)
+    requires vg > 0
+    requires BigNatGCD.IsGCD(vg, va, vd)
+    requires va == vqa * vg && vd == vqd * vg
+    ensures Coprime(vqa, vqd)
+  {
+    // 1 divides everything, so the first two IsGCD conjuncts are immediate.
+    assert BigNatGCD.DividesNat(1, vqa) by { assert vqa == 1 * vqa; }
+    assert BigNatGCD.DividesNat(1, vqd) by { assert vqd == 1 * vqd; }
+    // Any common divisor d of vqa and vqd: show d divides 1, i.e. d == 1.
+    forall d: nat | BigNatGCD.DividesNat(d, vqa) && BigNatGCD.DividesNat(d, vqd)
+      ensures BigNatGCD.DividesNat(d, 1)
+    {
+      // d | vqa  ==>  d*vg | vqa*vg == va;  likewise d*vg | vd.
+      PureArith.DivMulRight(d, vqa, vg);
+      assert BigNatGCD.DividesNat(d * vg, va) by { assert exists k: nat :: va == (d * vg) * k; }
+      PureArith.DivMulRight(d, vqd, vg);
+      assert BigNatGCD.DividesNat(d * vg, vd) by { assert exists k: nat :: vd == (d * vg) * k; }
+      // d*vg is a common divisor of va, vd, so by IsGCD it divides vg.
+      assert BigNatGCD.DividesNat(d * vg, vg);
+      // d*vg | vg with vg > 0 forces d == 1.
+      PureArith.DivisorOfFactorIsOne(d, vg);
+      assert d == 1;
+      assert BigNatGCD.DividesNat(d, 1) by { assert 1 == d * 1; }
+    }
   }
 
   // Value(g) > 0: g divides den and den > 0, so g != 0.
