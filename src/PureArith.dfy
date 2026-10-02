@@ -146,6 +146,26 @@ module PureArith {
     MulLowerBound(a, b);   // a >= 1, b > 0 ==> a*b >= b > 0
   }
 
+  // Integer version: product of two positive ints is positive.
+  lemma MulPosPosInt(a: int, b: int)
+    requires a > 0 && b > 0
+    ensures a * b > 0
+  {}
+
+  // Difference of two fractions over a common cross-denominator.
+  lemma RealSubFrac(a: real, b: real, c: real, d: real)
+    requires b != 0.0 && d != 0.0
+    ensures a / b - c / d == (a * d - c * b) / (b * d)
+  {
+    calc {
+      a / b - c / d;
+      == (a * d) / (b * d) - (c * b) / (d * b);
+      == { assert d * b == b * d; }
+      (a * d) / (b * d) - (c * b) / (b * d);
+      == (a * d - c * b) / (b * d);
+    }
+  }
+
   // Negating the numerator negates the fraction.
   lemma NegFrac(a: real, b: real)
     requires b != 0.0
