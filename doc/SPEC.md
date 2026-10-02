@@ -14,7 +14,11 @@ types. See `dafny/_private/cpp/BIGNUM_BACKEND.md`. The idea behind this repo:
 > implementation **in Dafny itself**, and *verify it*. The core operations are
 > well understood, there is plenty of reference code to follow, and a verified
 > implementation removes the external-dependency (the "C++ boost dilemma").
-> Rationals ("reals" in Dafny) need gcd to keep representatives small.
+
+> **Correction (later finding):** the original note here said "rationals need
+> gcd to keep representatives small". That is wrong for the actual target use —
+> Dafny's `real`. See the "Rational is parked" section below. The integer layer
+> (`BigInt`) is what the C++ backend's `DafnyReal` actually needs.
 
 The user explicitly asked for this to live in its own repo:
 `git@github.com:manfredscheucher/dafny-bignum.git`.
@@ -33,6 +37,35 @@ a tuned C++ library). This library is built so as not to foreclose that path
 (bv32 limbs, no dependency on Dafny `int` internally), but it is not promised to
 be a drop-in Boost replacement without that second phase. This distinction was
 made explicit to the user before building.
+
+## Rational is parked — and why (read before touching Rational.dfy)
+
+`src/Rational.dfy` reduces every result to lowest terms via gcd (`Make` is
+coprime-by-construction). That is correct for a *mathematical* rational, but it
+is the **wrong semantics for Dafny's `real`**, which is the only reason a
+rational layer was wanted here.
+
+Dafny's `real` is an *unreduced* num/den pair, on purpose: the denominator
+carries how many decimal places `print` shows. `1.5 * 1.0` is 150/100 and prints
+`1.50`; reducing it to 3/2 would print `1.5` and break byte-compatibility with
+the C#/Java/Python backends. The real C++ backend (`--bignum=boost`) therefore
+uses `DafnyReal` = two `DafnyBigInt` kept **unreduced** (mirroring C#'s
+`Dafny.BigRational`), and only `DafnyBigInt` is backed by Boost `cpp_int`. It
+deliberately does **not** use `cpp_rational`, precisely because that auto-reduces.
+
+Consequences:
+- The auto-reducing `Rational` here does not model `DafnyReal`. It is **parked**
+  as-is (verified, but not the thing the backend needs). Not deleted — it is a
+  correct mathematical rational and may be useful elsewhere.
+- A faithful `DafnyReal` would be an unreduced `(num: BigInt, den: BigInt)` pair
+  with **no** automatic gcd. If/when that is built, reduction must be an explicit
+  opt-in operation, never automatic.
+- `GCD`/`GCDFast` are therefore **not** needed for the `real` use case. Kept as
+  optional verified building blocks (they do no harm, usable for an explicit
+  `Reduce()` or elsewhere) — but nothing should call them automatically.
+- **The integer layer (`BigInt`) is the real deliverable** for the C++ backend:
+  it is what `DafnyBigInt` / unbounded `int` maps to, and what `DafnyReal` is
+  built out of. Focus is there, not on the rational layer.
 
 ## Design decisions
 
