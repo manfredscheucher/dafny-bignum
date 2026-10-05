@@ -403,8 +403,10 @@ module PureArith {
     ensures x * (1.0 / y) == x / y
   {}
 
-  // 10^n as a nat.
-  function Pow10(n: nat): nat
+  // 10^n as a nat. Carries positivity as a postcondition so that `/ Pow10(n)`
+  // over the reals is always well-defined without a separate lemma call.
+  function Pow10(n: nat): (r: nat)
+    ensures r >= 1
   {
     if n == 0 then 1 else 10 * Pow10(n - 1)
   }
@@ -412,7 +414,6 @@ module PureArith {
   lemma Pow10Positive(n: nat)
     ensures Pow10(n) >= 1
   {
-    if n == 0 {} else { Pow10Positive(n - 1); }
   }
 
   // IsPowerOf10 over nat, matching C# BigRational.IsPowerOf10: returns (yes, log10)
@@ -640,5 +641,208 @@ module PureArith {
       if s[0] == '0' { assert DigitVal(s[0]) == 0; }
     }
     // |s| > 1 is immediate from DenotesDecimal (s[0] != '0').
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  // ParseDec algebra: how ParseDec behaves on concatenations. These are the
+  // facts behind the decimal-point placement in ToString.
+  //////////////////////////////////////////////////////////////////////////////
+
+  // All characters of s are digits (the ParseDec precondition, named).
+  predicate AllDigits(s: seq<char>)
+  {
+    forall i :: 0 <= i < |s| ==> IsDigitChar(s[i])
+  }
+
+  // Concatenating one digit on the right of an all-digit string.
+  lemma AllDigitsAppend(a: seq<char>, c: char)
+    requires AllDigits(a) && IsDigitChar(c)
+    ensures AllDigits(a + [c])
+  {
+    forall i | 0 <= i < |a + [c]| ensures IsDigitChar((a + [c])[i]) {
+      if i < |a| { assert (a + [c])[i] == a[i]; } else { assert (a + [c])[i] == c; }
+    }
+  }
+
+  // Concatenation splits ParseDec: value(a ++ b) == value(a) * 10^|b| + value(b).
+  // (Most-significant digits first, so the high part a is shifted left by |b|.)
+  @IsolateAssertions
+  lemma ParseDecConcat(a: seq<char>, b: seq<char>)
+    requires AllDigits(a) && AllDigits(b)
+    ensures AllDigits(a + b)
+    ensures ParseDec(a + b) == ParseDec(a) * Pow10(|b|) + ParseDec(b)
+    decreases |b|
+  {
+    AllDigitsConcat(a, b);
+    if |b| == 0 {
+      assert a + b == a;
+    } else {
+      var b' := b[..|b| - 1];
+      var last := b[|b| - 1];
+      assert AllDigits(b') by {
+        forall i | 0 <= i < |b'| ensures IsDigitChar(b'[i]) { assert b'[i] == b[i]; }
+      }
+      ParseDecConcat(a, b');                    // IH on the shorter b'
+      // (a+b) with its last digit stripped is a + b'
+      assert (a + b)[..|a + b| - 1] == a + b';
+      assert (a + b)[|a + b| - 1] == last;
+      assert ParseDec(a + b) == ParseDec(a + b') * 10 + DigitVal(last);
+      assert ParseDec(b) == ParseDec(b') * 10 + DigitVal(last) by {
+        assert b[..|b| - 1] == b';
+      }
+      // close the nonlinear algebra over plain nats
+      ParseDecConcatStep(ParseDec(a), ParseDec(b'), Pow10(|b'|), DigitVal(last), |b'|);
+    }
+  }
+
+  lemma AllDigitsConcat(a: seq<char>, b: seq<char>)
+    requires AllDigits(a) && AllDigits(b)
+    ensures AllDigits(a + b)
+  {
+    forall i | 0 <= i < |a + b| ensures IsDigitChar((a + b)[i]) {
+      if i < |a| { assert (a + b)[i] == a[i]; } else { assert (a + b)[i] == b[i - |a|]; }
+    }
+  }
+
+  // The nonlinear closing step of ParseDecConcat, over plain nats:
+  //   (pa*P + pb')*10 + d == pa*Pow10(m+1) + (pb'*10 + d),  with P == Pow10(m).
+  lemma ParseDecConcatStep(pa: nat, pb': nat, P: nat, d: nat, m: nat)
+    requires P == Pow10(m)
+    ensures (pa * P + pb') * 10 + d == pa * Pow10(m + 1) + (pb' * 10 + d)
+  {
+    calc {
+      (pa * P + pb') * 10 + d;
+      { MulDistribRightNat(pa * P, pb', 10); }
+      (pa * P) * 10 + pb' * 10 + d;
+      { MulReassocNat3(pa, P, 10); }
+      pa * (P * 10) + (pb' * 10 + d);
+      { assert P * 10 == 10 * P; assert Pow10(m + 1) == 10 * Pow10(m); }
+      pa * Pow10(m + 1) + (pb' * 10 + d);
+    }
+  }
+
+  lemma MulDistribRightNat(x: nat, y: nat, k: nat)
+    ensures (x + y) * k == x * k + y * k
+  {}
+
+  lemma MulReassocNat3(a: nat, b: nat, c: nat)
+    ensures (a * b) * c == a * (b * c)
+  {}
+
+  // Leading zeros do not change the parsed value: ParseDec(Zeros(k) + s) == ParseDec(s).
+  lemma ParseDecLeadingZeros(zeros: seq<char>, s: seq<char>)
+    requires AllDigits(zeros) && AllDigits(s)
+    requires forall i :: 0 <= i < |zeros| ==> zeros[i] == '0'
+    ensures AllDigits(zeros + s)
+    ensures ParseDec(zeros + s) == ParseDec(s)
+  {
+    ParseDecConcat(zeros, s);
+    // ParseDec(zeros) == 0 since every digit is '0'.
+    ZerosParseToZero(zeros);
+    assert ParseDec(zeros + s) == ParseDec(zeros) * Pow10(|s|) + ParseDec(s);
+  }
+
+  // A string of '0' characters denotes 0.
+  lemma ZerosParseToZero(zeros: seq<char>)
+    requires AllDigits(zeros)
+    requires forall i :: 0 <= i < |zeros| ==> zeros[i] == '0'
+    ensures ParseDec(zeros) == 0
+    decreases |zeros|
+  {
+    if |zeros| == 0 {
+    } else {
+      var z' := zeros[..|zeros| - 1];
+      assert AllDigits(z') by {
+        forall i | 0 <= i < |z'| ensures IsDigitChar(z'[i]) { assert z'[i] == zeros[i]; }
+      }
+      assert forall i :: 0 <= i < |z'| ==> z'[i] == '0';
+      ZerosParseToZero(z');
+      assert DigitVal(zeros[|zeros| - 1]) == 0;
+    }
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  // DenotesReal: the real number a ToString-shaped string stands for. Tailored
+  // to the exact three forms DafnyReal.ToString emits.
+  //
+  //   - whole:        [sign] D ".0"             value  (-)?ParseDec(D)
+  //   - decimal:      [sign] W "." F            value  (-)?(ParseDec(W) + ParseDec(F)/10^|F|)
+  //   - frac print:   "(" A ".0 / " B ".0)"     value  ParseDec(A)/ParseDec(B)
+  //
+  // Expressed directly as a real-valued equation the caller discharges, rather
+  // than as a parser, so the proof stays about values not string scanning.
+  //////////////////////////////////////////////////////////////////////////////
+
+  // Value of a "whole.fraction" digit layout with an explicit sign flag:
+  //   (neg ? -1 : 1) * (ParseDec(w) + ParseDec(f)/10^|f|).
+  function DecimalLayoutValue(neg: bool, w: seq<char>, f: seq<char>): real
+    requires AllDigits(w) && AllDigits(f)
+  {
+    Pow10Positive(|f|);
+    var mag := (ParseDec(w) as real) + (ParseDec(f) as real) / (Pow10(|f|) as real);
+    if neg then -mag else mag
+  }
+
+  // The decimal-point placement identity, over reals: if `digits` are the digits
+  // of m (ParseDec(digits) == m) and we cut `log10` from the right, the layout
+  // value equals m / 10^log10. This is the heart of the terminating-decimal case.
+  lemma DecimalCutCorrect(digits: seq<char>, cut: nat, log10: nat, m: nat)
+    requires AllDigits(digits)
+    requires ParseDec(digits) == m
+    requires cut + log10 == |digits|
+    requires cut <= |digits|
+    ensures AllDigits(digits[..cut]) && AllDigits(digits[cut..])
+    ensures |digits[cut..]| == log10
+    ensures (ParseDec(digits[..cut]) as real)
+            + (ParseDec(digits[cut..]) as real) / (Pow10(log10) as real)
+            == (m as real) / (Pow10(log10) as real)
+  {
+    var w := digits[..cut];
+    var f := digits[cut..];
+    assert AllDigits(w) by {
+      forall i | 0 <= i < |w| ensures IsDigitChar(w[i]) { assert w[i] == digits[i]; }
+    }
+    assert AllDigits(f) by {
+      forall i | 0 <= i < |f| ensures IsDigitChar(f[i]) { assert f[i] == digits[cut + i]; }
+    }
+    assert w + f == digits;
+    ParseDecConcat(w, f);                 // m == ParseDec(w)*Pow10(|f|) + ParseDec(f)
+    assert |f| == log10;
+    var P := Pow10(log10);
+    Pow10Positive(log10);
+    // m == ParseDec(w)*P + ParseDec(f); divide by P (real), P > 0.
+    DecimalCutReal(ParseDec(w), ParseDec(f), m, P);
+  }
+
+  // Real step: m == wv*P + fv (P>=1) ==> wv + fv/P == m/P.
+  lemma DecimalCutReal(wv: nat, fv: nat, m: nat, P: nat)
+    requires P >= 1
+    requires m == wv * P + fv
+    ensures (wv as real) + (fv as real) / (P as real) == (m as real) / (P as real)
+  {
+    var Pr := P as real;
+    assert Pr > 0.0;
+    var prod := wv * P;
+    CastProd(prod, wv, P);                 // (wv*P) as real == (wv as real)*Pr
+    // m as real == (wv as real)*Pr + (fv as real)
+    assert (m as real) == (wv as real) * Pr + (fv as real);
+    // divide through by Pr
+    assert (m as real) / Pr == (wv as real) * Pr / Pr + (fv as real) / Pr;
+    assert (wv as real) * Pr / Pr == (wv as real);
+  }
+
+  // Zero-integer-part layout: value of "0." + zeros(k) + digits where digits
+  // denote m and k + |digits| == log10 equals m / 10^log10.
+  lemma DecimalZeroPadCorrect(zeros: seq<char>, digits: seq<char>, log10: nat, m: nat)
+    requires AllDigits(zeros) && AllDigits(digits)
+    requires forall i :: 0 <= i < |zeros| ==> zeros[i] == '0'
+    requires ParseDec(digits) == m
+    requires |zeros| + |digits| == log10
+    ensures AllDigits(zeros + digits)
+    ensures |zeros + digits| == log10
+    ensures (0 as real) + (ParseDec(zeros + digits) as real) / (Pow10(log10) as real)
+            == (m as real) / (Pow10(log10) as real)
+  {
+    ParseDecLeadingZeros(zeros, digits);   // ParseDec(zeros+digits) == m
   }
 }

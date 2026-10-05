@@ -540,8 +540,354 @@ module DafnyReal {
           // more fractional places than digits: "0." + leading zeros + digits
           sign + "0." + Zeros(log10 - |digits|) + digits
       else
-        // non-terminating in decimal: Dafny prints "(num.0 / den.0)"
-        "(" + PureArith.DecimalString(AbsNat(numv)) + ".0 / "
+        // non-terminating in decimal: Dafny prints "(num.0 / den.0)" with the
+        // numerator SIGNED (den is always > 0 here), matching C# `{0}.0`.
+        var numSign := if numv < 0 then "-" else "";
+        "(" + numSign + PureArith.DecimalString(AbsNat(numv)) + ".0 / "
             + PureArith.DecimalString(AbsNat(denv)) + ".0)"
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Parse-back correctness of ToString.
+  //
+  // DenotesRealReal(s, v): the string s, read as a decimal number, equals v.
+  // Tailored to the exact three shapes ToString emits (an optionally-signed
+  // "whole.frac", or the "(A.0 / B.0)" form). Expressed as a value equation on
+  // the digit substrings, so the proof is about values, not string scanning.
+  //////////////////////////////////////////////////////////////////////////////
+
+  // A signed "W.F" decimal reads as (-)?(ParseDec(W) + ParseDec(F)/10^|F|).
+  ghost predicate DenotesSignedDecimal(s: seq<char>, v: real)
+  {
+    exists neg: bool, w: seq<char>, f: seq<char> ::
+      PureArith.AllDigits(w) && PureArith.AllDigits(f) && |f| >= 1 &&
+      s == (if neg then "-" else "") + w + "." + f &&
+      v == PureArith.DecimalLayoutValue(neg, w, f)
+  }
+
+  // The "([-]A.0 / B.0)" form reads as (-)?ParseDec(A)/ParseDec(B).
+  // Phrased with an explicit trigger on the string shape (the witness strings a,
+  // b are recoverable from s), so the existential instantiates cleanly.
+  ghost predicate DenotesFractionPrint(s: seq<char>, v: real)
+  {
+    exists neg: bool, a: seq<char>, b: seq<char>
+      {:trigger FracShape(neg, a, b)} ::
+      PureArith.AllDigits(a) && PureArith.AllDigits(b) &&
+      (PureArith.ParseDec(b) as real) != 0.0 &&
+      s == FracShape(neg, a, b) &&
+      v == (if neg then -(PureArith.ParseDec(a) as real) else (PureArith.ParseDec(a) as real))
+           / (PureArith.ParseDec(b) as real)
+  }
+
+  // The concrete string shape of the fraction print, as a named function so it
+  // can trigger the existential above.
+  ghost function FracShape(neg: bool, a: seq<char>, b: seq<char>): seq<char>
+  {
+    "(" + (if neg then "-" else "") + a + ".0 / " + b + ".0)"
+  }
+
+  ghost predicate DenotesReal(s: seq<char>, v: real)
+  {
+    DenotesSignedDecimal(s, v) || DenotesFractionPrint(s, v)
+  }
+
+  // ToString(x), read back as a decimal, equals RealValue(x).
+  lemma ToStringCorrect(x: DReal)
+    requires Wf(x)
+    ensures DenotesReal(ToString(x), RealValue(x))
+  {
+    var numv := BigInt.IntValue(x.num);
+    var denv := BigInt.IntValue(x.den);
+    assert denv > 0;
+    if numv == 0 || denv == 1 {
+      WholeCase(x, numv, denv);
+    } else {
+      var (ok, factor, log10) := PureArith.DividesAPowerOf10(denv as nat);
+      if ok {
+        TerminatingCase(x, numv, denv, factor, log10);
+      } else {
+        FractionPrintCase(x, numv, denv);
+      }
+    }
+  }
+
+  // Case 1: num==0 or den==1. Value is numv/denv, printed as "sign D.0" which
+  // reads as (-)?(ParseDec(D) + 0/10) == numv as real (since den is 1 here, or
+  // num is 0). We expose w = D, f = "0".
+  @IsolateAssertions
+  lemma WholeCase(x: DReal, numv: int, denv: int)
+    requires Wf(x) && numv == BigInt.IntValue(x.num) && denv == BigInt.IntValue(x.den)
+    requires denv > 0
+    requires numv == 0 || denv == 1
+    ensures DenotesReal(ToString(x), RealValue(x))
+  {
+    var neg := numv < 0;
+    var w := PureArith.DecimalString(AbsNat(numv));
+    var f := "0";
+    assert PureArith.AllDigits(w);                 // from DenotesDecimal
+    assert PureArith.AllDigits(f);
+    assert ToString(x) == (if neg then "-" else "") + w + "." + f;
+    // value: RealValue == numv/denv, and here that equals numv (den 1) or 0.
+    WholeValue(numv, denv, neg, w, f);
+    assert RealValue(x) == PureArith.DecimalLayoutValue(neg, w, f);
+    assert DenotesSignedDecimal(ToString(x), RealValue(x));
+  }
+
+  // numv/denv == DecimalLayoutValue(neg, DecimalString(|numv|), "0") when
+  // numv==0 or denv==1.
+  @IsolateAssertions
+  lemma WholeValue(numv: int, denv: int, neg: bool, w: seq<char>, f: seq<char>)
+    requires denv > 0 && (numv == 0 || denv == 1)
+    requires neg == (numv < 0)
+    requires PureArith.AllDigits(w) && PureArith.ParseDec(w) == AbsNat(numv)
+    requires f == "0"
+    ensures PureArith.AllDigits(f)
+    ensures (numv as real) / (denv as real)
+            == PureArith.DecimalLayoutValue(neg, w, f)
+  {
+    assert PureArith.AllDigits(f) by { assert f[0] == '0'; }
+    assert PureArith.ParseDec(f) == 0 by {
+      assert f[..|f| - 1] == [];
+      assert PureArith.DigitVal(f[0]) == 0;
+    }
+    assert PureArith.Pow10(|f|) >= 1;
+    // DecimalLayoutValue(neg,w,"0") == (neg? -1:1) * (|numv| + 0) == numv as real.
+    var mag := (PureArith.ParseDec(w) as real)
+             + (PureArith.ParseDec(f) as real) / (PureArith.Pow10(|f|) as real);
+    assert mag == AbsNat(numv) as real;
+    // RealValue: den is 1 (so numv/1) or numv is 0 (so 0/denv == 0).
+    if denv == 1 {
+      assert (numv as real) / (denv as real) == numv as real;
+    } else {
+      assert numv == 0;
+      assert (numv as real) / (denv as real) == 0.0;
+    }
+    AbsNatSignReal(numv, neg);
+  }
+
+  // (neg? -mag : mag) with mag == |numv| equals numv as real.
+  lemma AbsNatSignReal(numv: int, neg: bool)
+    requires neg == (numv < 0)
+    ensures (if neg then -(AbsNat(numv) as real) else (AbsNat(numv) as real))
+            == numv as real
+  {}
+
+  // Case 2: den divides a power of ten. The heart of the proof.
+  @IsolateAssertions
+  lemma TerminatingCase(x: DReal, numv: int, denv: int, factor: nat, log10: nat)
+    requires Wf(x) && numv == BigInt.IntValue(x.num) && denv == BigInt.IntValue(x.den)
+    requires denv > 0 && numv != 0 && denv != 1
+    requires PureArith.DividesAPowerOf10(denv as nat) == (true, factor, log10)
+    ensures DenotesReal(ToString(x), RealValue(x))
+  {
+    PureArith.DividesAPowerOf10Correct(denv as nat);
+    assert factor * (denv as nat) == PureArith.Pow10(log10);      // key fact
+    var n := numv * (factor as int);
+    var neg := n < 0;
+    var digits := PureArith.DecimalString(AbsNat(n));
+    assert PureArith.AllDigits(digits) && PureArith.ParseDec(digits) == AbsNat(n);
+    // RealValue(x) == n / Pow10(log10)  (as reals)
+    TerminatingValue(numv, denv, factor, log10, n);
+    var P := PureArith.Pow10(log10);
+    assert RealValue(x) == (n as real) / (P as real);
+
+    if log10 < |digits| {
+      var cut := |digits| - log10;
+      var w := digits[..cut];
+      var f := digits[cut..];
+      // decimal-point placement: w + "0.something" denotes |n| / Pow10(log10)
+      PureArith.DecimalCutCorrect(digits, cut, log10, AbsNat(n));
+      assert |f| == log10 && log10 >= 1;          // denv != 1 ==> log10 >= 1
+      Log10Pos(denv, factor, log10);
+      assert ToString(x) == (if neg then "-" else "") + w + "." + f;
+      // value side
+      SignedLayoutValue(neg, w, f, n, P, AbsNat(n));
+      assert RealValue(x) == PureArith.DecimalLayoutValue(neg, w, f);
+      assert DenotesSignedDecimal(ToString(x), RealValue(x));
+    } else {
+      var k := log10 - |digits|;
+      var zeros := Zeros(k);
+      var w := "0";
+      var f := zeros + digits;
+      ZerosAllDigits(zeros, k);
+      assert PureArith.AllDigits(f) by { PureArith.AllDigitsConcat(zeros, digits); }
+      assert |f| == log10 && log10 >= 1;
+      Log10Pos(denv, factor, log10);
+      assert ToString(x) == (if neg then "-" else "") + w + "." + f;
+      PureArith.DecimalZeroPadCorrect(zeros, digits, log10, AbsNat(n));
+      ZeroPadLayoutValue(neg, w, zeros, digits, f, n, P, AbsNat(n), log10);
+      assert RealValue(x) == PureArith.DecimalLayoutValue(neg, w, f);
+      assert DenotesSignedDecimal(ToString(x), RealValue(x));
+    }
+  }
+
+  // RealValue(x) == n / Pow10(log10), where n == numv*factor and
+  // factor*denv == Pow10(log10).
+  @IsolateAssertions
+  lemma TerminatingValue(numv: int, denv: int, factor: nat, log10: nat, n: int)
+    requires denv > 0
+    requires n == numv * (factor as int)
+    requires factor * (denv as nat) == PureArith.Pow10(log10)
+    ensures (numv as real) / (denv as real)
+            == (n as real) / (PureArith.Pow10(log10) as real)
+  {
+    var P := PureArith.Pow10(log10);
+    var fr := factor as real;
+    var dr := denv as real;
+    var Pr := P as real;
+    assert dr > 0.0;
+    // factor*denv == P  (cast to reals), so fr*dr == Pr, fr > 0.
+    PureArith.CastProd(P, factor, denv as nat);
+    NatRealNonneg(factor, denv);
+    assert fr * dr == Pr;
+    assert fr >= 0.0;
+    assert Pr >= 1.0 by { assert P >= 1; }
+    assert fr > 0.0;
+    // n as real == numv*fr
+    PureArith.CastProdInt(n, numv, factor as int);
+    assert (n as real) == (numv as real) * fr;
+    // numv/denv == (numv*fr)/(denv*fr) == n / P
+    DivScaleReal(numv as real, dr, fr, n as real, Pr);
+  }
+
+  // numv/dr == (numv*fr)/(dr*fr) and dr*fr == Pr, so numv/dr == nr/Pr.
+  lemma DivScaleReal(numv: real, dr: real, fr: real, nr: real, Pr: real)
+    requires dr > 0.0 && fr > 0.0
+    requires nr == numv * fr
+    requires dr * fr == Pr
+    ensures numv / dr == nr / Pr
+  {
+    assert Pr == dr * fr;
+    assert numv / dr == (numv * fr) / (dr * fr) by {
+      PureArith.RealCancel(numv, dr, fr);
+    }
+  }
+
+  lemma NatRealNonneg(a: nat, b: int)
+    requires b > 0
+    ensures (a as real) >= 0.0 && (b as real) > 0.0
+  {}
+
+  // SignedLayoutValue: layout (neg,w,f) with w=digits[..cut], f=digits[cut..],
+  // equals n/P.
+  @IsolateAssertions
+  lemma SignedLayoutValue(neg: bool, w: seq<char>, f: seq<char>, n: int, P: nat, m: nat)
+    requires PureArith.AllDigits(w) && PureArith.AllDigits(f)
+    requires neg == (n < 0) && m == AbsNat(n)
+    requires P >= 1
+    requires (PureArith.ParseDec(w) as real)
+             + (PureArith.ParseDec(f) as real) / (P as real)
+             == (m as real) / (P as real)
+    requires |f| >= 1 && PureArith.Pow10(|f|) == P
+    ensures (n as real) / (P as real) == PureArith.DecimalLayoutValue(neg, w, f)
+  {
+    var mag := (PureArith.ParseDec(w) as real)
+             + (PureArith.ParseDec(f) as real) / (PureArith.Pow10(|f|) as real);
+    assert mag == (m as real) / (P as real);
+    // n == (neg? -m : m), so n/P == (neg? -(m/P) : m/P) == DecimalLayoutValue.
+    assert (m as real) == AbsNat(n) as real;
+    SignDivReal(n, m, P, neg);
+  }
+
+  // (n as real)/P with m==|n| equals (neg? -(m/P) : m/P).
+  lemma SignDivReal(n: int, m: nat, P: nat, neg: bool)
+    requires P >= 1 && m == AbsNat(n) && neg == (n < 0)
+    ensures (n as real) / (P as real)
+            == (if neg then -((m as real) / (P as real)) else (m as real) / (P as real))
+  {
+    assert (P as real) > 0.0;
+    if neg { assert (n as real) == -(m as real); } else { assert (n as real) == (m as real); }
+  }
+
+  // Zero-pad layout: w=="0", f==zeros++digits, value 0 + m/Pow10(log10) == n/P.
+  @IsolateAssertions
+  lemma ZeroPadLayoutValue(neg: bool, w: seq<char>, zeros: seq<char>, digits: seq<char>,
+                           f: seq<char>, n: int, P: nat, m: nat, log10: nat)
+    requires w == "0" && f == zeros + digits
+    requires PureArith.AllDigits(zeros) && PureArith.AllDigits(digits) && PureArith.AllDigits(f)
+    requires neg == (n < 0) && m == AbsNat(n)
+    requires P == PureArith.Pow10(log10) && |f| == log10 && log10 >= 1
+    requires (0 as real) + (PureArith.ParseDec(f) as real) / (P as real)
+             == (m as real) / (P as real)
+    ensures (n as real) / (P as real) == PureArith.DecimalLayoutValue(neg, w, f)
+  {
+    assert PureArith.ParseDec(w) == 0 by {
+      assert w[..|w| - 1] == [];
+      assert PureArith.DigitVal(w[0]) == 0;
+    }
+    assert PureArith.Pow10(|f|) == P;
+    var mag := (PureArith.ParseDec(w) as real)
+             + (PureArith.ParseDec(f) as real) / (PureArith.Pow10(|f|) as real);
+    assert mag == (m as real) / (P as real);
+    SignDivReal(n, m, P, neg);
+  }
+
+  lemma ZerosAllDigits(zeros: seq<char>, k: nat)
+    requires zeros == Zeros(k)
+    ensures PureArith.AllDigits(zeros)
+    ensures forall i :: 0 <= i < |zeros| ==> zeros[i] == '0'
+  {}
+
+  // den != 1 and den divides a power of ten ==> log10 >= 1.
+  lemma Log10Pos(denv: int, factor: nat, log10: nat)
+    requires denv > 1
+    requires factor * (denv as nat) == PureArith.Pow10(log10)
+    ensures log10 >= 1
+  {
+    if log10 == 0 {
+      assert PureArith.Pow10(0) == 1;
+      assert factor * (denv as nat) == 1;
+      // denv > 1 but factor*denv == 1 is impossible for nats
+      assert denv as nat >= 2;
+    }
+  }
+
+  // Case 3: non-terminating decimal, printed "([-]num.0 / den.0)" (signed num,
+  // den > 0). Covers all numv != 0.
+  @IsolateAssertions
+  lemma FractionPrintCase(x: DReal, numv: int, denv: int)
+    requires Wf(x) && numv == BigInt.IntValue(x.num) && denv == BigInt.IntValue(x.den)
+    requires denv > 0 && numv != 0 && denv != 1
+    requires !PureArith.DividesAPowerOf10(denv as nat).0
+    ensures DenotesReal(ToString(x), RealValue(x))
+  {
+    var neg := numv < 0;
+    var a := PureArith.DecimalString(AbsNat(numv));
+    var b := PureArith.DecimalString(AbsNat(denv));
+    assert PureArith.AllDigits(a) && PureArith.ParseDec(a) == AbsNat(numv);
+    assert PureArith.AllDigits(b) && PureArith.ParseDec(b) == AbsNat(denv);
+    assert ToString(x) == "(" + (if neg then "-" else "") + a + ".0 / " + b + ".0)";
+    assert ToString(x) == FracShape(neg, a, b);
+    assert AbsNat(denv) == denv;
+    assert (PureArith.ParseDec(b) as real) == (denv as real) != 0.0;
+    // value: RealValue == numv/denv; a denotes |numv|, sign pulled out.
+    FractionValue(numv, denv, neg, PureArith.ParseDec(a));
+    var v := RealValue(x);
+    assert v == (if neg then -(PureArith.ParseDec(a) as real) else (PureArith.ParseDec(a) as real))
+                / (PureArith.ParseDec(b) as real);
+    // exhibit the existential witness (neg, a, b) for DenotesFractionPrint
+    WitnessFractionPrint(ToString(x), v, neg, a, b);
+  }
+
+  // Introduce the DenotesFractionPrint existential from an explicit witness.
+  lemma WitnessFractionPrint(s: seq<char>, v: real, neg: bool, a: seq<char>, b: seq<char>)
+    requires PureArith.AllDigits(a) && PureArith.AllDigits(b)
+    requires (PureArith.ParseDec(b) as real) != 0.0
+    requires s == FracShape(neg, a, b)
+    requires v == (if neg then -(PureArith.ParseDec(a) as real) else (PureArith.ParseDec(a) as real))
+                  / (PureArith.ParseDec(b) as real)
+    ensures DenotesFractionPrint(s, v)
+  {
+    assert s == FracShape(neg, a, b);   // supplies the trigger term
+  }
+
+  // numv/denv == (neg? -pa : pa)/denv  where pa == |numv| and neg == numv<0.
+  lemma FractionValue(numv: int, denv: int, neg: bool, pa: nat)
+    requires denv > 0 && neg == (numv < 0) && pa == AbsNat(numv)
+    ensures (numv as real) / (denv as real)
+            == (if neg then -(pa as real) else (pa as real)) / (denv as real)
+  {
+    if neg { assert (numv as real) == -(pa as real); }
+    else { assert (numv as real) == (pa as real); }
   }
 }
