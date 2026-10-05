@@ -13,9 +13,15 @@ include "FwNat.dfy"
 module FwCompare {
   import opened FwNat
 
-  // Compare two NORMALIZED sequences. For normalized numbers the longer one is
-  // strictly larger, so length decides first; equal lengths compare MSB-first.
-  method Compare(xs: seq<limb>, ys: seq<limb>) returns (c: int)
+  // Result type: a native 8-bit value in {-1,0,1}. A plain `int` return would
+  // compile to an unbounded integer (Boost) — this newtype gets a NativeType.
+  newtype cmp = x: int | -1 <= x <= 1
+
+  // Compare two NORMALIZED sequences. Length decides first (normalized: longer is
+  // strictly larger); equal lengths compare limb-wise. Fully fixed-width: the
+  // recursion is LSB-first over xs[1..] (no `|xs|-1` index in compiled code), and
+  // the result is the native `cmp`, so nothing unbounded is generated.
+  method Compare(xs: seq<limb>, ys: seq<limb>) returns (c: cmp)
     requires Normalized(xs) && Normalized(ys)
     ensures c == 0 <==> Value(xs) == Value(ys)
     ensures c < 0 <==> Value(xs) < Value(ys)
@@ -28,9 +34,10 @@ module FwCompare {
     c := CompareEqualLen(xs, ys);
   }
 
-  // Equal-length comparison, MSB first. Recurses on the sequences (drop the last
-  // limb), never on a numeric index, so nothing unbounded is compiled.
-  method CompareEqualLen(xs: seq<limb>, ys: seq<limb>) returns (c: int)
+  // Equal-length comparison, LSB-first over xs[1..]. The higher-order limbs
+  // dominate: if the tails differ, their order decides; otherwise the head
+  // limbs decide. No numeric index is bound in compiled code.
+  method CompareEqualLen(xs: seq<limb>, ys: seq<limb>) returns (c: cmp)
     requires |xs| == |ys|
     ensures c == 0 <==> Value(xs) == Value(ys)
     ensures c < 0 <==> Value(xs) < Value(ys)
@@ -40,14 +47,16 @@ module FwCompare {
     if |xs| == 0 {
       return 0;
     }
-    var n := |xs| - 1;
-    if xs[n] != ys[n] {
-      MswDecides(xs, ys);
-      return if xs[n] < ys[n] then -1 else 1;
+    var ctail := CompareEqualLen(xs[1..], ys[1..]);
+    if ctail != 0 {
+      LsbTailDecides(xs, ys, ctail);
+      return ctail;
     }
-    var c0 := CompareEqualLen(xs[..n], ys[..n]);
-    EqualLenStep(xs, ys, c0);
-    c := c0;
+    // tails equal: head limbs decide
+    LsbHeadDecides(xs, ys);
+    if xs[0] < ys[0] { c := -1; }
+    else if xs[0] > ys[0] { c := 1; }
+    else { c := 0; }
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -123,65 +132,46 @@ module FwCompare {
     if a == b {} else { Pow32Monotone(a, b - 1); assert Pow32(b) == 0x1_0000_0000 * Pow32(b - 1); }
   }
 
-  // If the most significant limb differs, it decides the order.
-  lemma MswDecides(xs: seq<limb>, ys: seq<limb>)
+  // LSB-first: if the tails (xs[1..] vs ys[1..]) differ, they decide the order,
+  // because the tail is scaled by B and the head limbs are < B so cannot bridge
+  // a tail gap of at least one.
+  lemma LsbTailDecides(xs: seq<limb>, ys: seq<limb>, ctail: cmp)
     requires |xs| == |ys| > 0
-    requires xs[|xs| - 1] != ys[|ys| - 1]
-    ensures xs[|xs| - 1] < ys[|ys| - 1] ==> Value(xs) < Value(ys)
-    ensures xs[|xs| - 1] > ys[|ys| - 1] ==> Value(xs) > Value(ys)
+    requires ctail != 0
+    requires ctail < 0 <==> Value(xs[1..]) < Value(ys[1..])
+    requires ctail > 0 <==> Value(xs[1..]) > Value(ys[1..])
+    ensures ctail < 0 <==> Value(xs) < Value(ys)
+    ensures ctail > 0 <==> Value(xs) > Value(ys)
   {
-    var n := |xs| - 1;
-    PrefixPlusTop(xs);
-    PrefixPlusTop(ys);
-    ValueBound(xs[..n]);
-    ValueBound(ys[..n]);
-    // Value = Value(prefix) + Pow32(n)*top, prefix < Pow32(n), so top decides.
-  }
-
-  // Value(s) == Value(s[..n]) + Pow32(n) * s[n], n == |s|-1.
-  lemma PrefixPlusTop(s: seq<limb>)
-    requires |s| > 0
-    ensures Value(s) == Value(s[..|s| - 1]) + Pow32(|s| - 1) * (s[|s| - 1] as nat)
-  {
-    var n := |s| - 1;
     var B := 0x1_0000_0000;
-    if n == 0 {
-      assert s[..0] == [];
-      assert Value(s) == (s[0] as nat);
-    } else {
-      PrefixPlusTop(s[1..]);
-      assert s[1..][..n - 1] == s[1..n];
-      assert s[..n][1..] == s[1..n];
-      assert s[1..][|s[1..]| - 1] == s[n];
-      // bind the sub-values as plain nats; do the nonlinear algebra in one lemma
-      var vt := Value(s[1..n]);
-      var top := s[n] as nat;
-      var p := Pow32(n - 1);
-      assert Value(s[1..]) == vt + p * top;            // recursive hypothesis
-      assert Pow32(n) == B * p;                         // Pow32 definition
-      assert Value(s[..n]) == (s[0] as nat) + B * vt;   // head unfold of prefix
-      PrefixTopAlgebra(B, s[0] as nat, vt, p, top);
-    }
+    var xh := xs[0] as nat; var yh := ys[0] as nat;
+    var xt := Value(xs[1..]); var yt := Value(ys[1..]);
+    assert Value(xs) == xh + B * xt;
+    assert Value(ys) == yh + B * yt;
+    assert xh < B && yh < B;
+    // if xt < yt then xt+1 <= yt, so B*yt - B*xt >= B > xh, hence Value(xs)<Value(ys)
+    if xt < yt { TailGap(B, xt, yt); }
+    if xt > yt { TailGap(B, yt, xt); }
   }
 
-  // (h + B*(vt + p*top)) == (h + B*vt) + (B*p)*top. One isolated nonlinear step.
-  lemma PrefixTopAlgebra(B: nat, h: nat, vt: nat, p: nat, top: nat)
-    ensures h + B * (vt + p * top) == (h + B * vt) + (B * p) * top
-  {}
-
-  // Equal top limb: the order is decided by the prefixes.
-  lemma EqualLenStep(xs: seq<limb>, ys: seq<limb>, c0: int)
-    requires |xs| == |ys| > 0
-    requires xs[|xs| - 1] == ys[|ys| - 1]
-    requires c0 == 0 <==> Value(xs[..|xs| - 1]) == Value(ys[..|ys| - 1])
-    requires c0 < 0 <==> Value(xs[..|xs| - 1]) < Value(ys[..|ys| - 1])
-    requires c0 > 0 <==> Value(xs[..|xs| - 1]) > Value(ys[..|ys| - 1])
-    ensures c0 == 0 <==> Value(xs) == Value(ys)
-    ensures c0 < 0 <==> Value(xs) < Value(ys)
-    ensures c0 > 0 <==> Value(xs) > Value(ys)
+  // a < b (nats) ==> B*b >= B*a + B.  Isolated nonlinear step.
+  lemma TailGap(B: nat, a: nat, b: nat)
+    requires a < b
+    ensures B * b >= B * a + B
   {
-    PrefixPlusTop(xs);
-    PrefixPlusTop(ys);
-    // same top limb and same Pow32 factor, so the prefixes decide identically.
+    assert b >= a + 1;
+    assert B * b >= B * (a + 1);
+  }
+
+  // LSB-first: equal tails ==> the head limbs decide.
+  lemma LsbHeadDecides(xs: seq<limb>, ys: seq<limb>)
+    requires |xs| == |ys| > 0
+    requires Value(xs[1..]) == Value(ys[1..])
+    ensures (xs[0] as nat) < (ys[0] as nat) ==> Value(xs) < Value(ys)
+    ensures (xs[0] as nat) > (ys[0] as nat) ==> Value(xs) > Value(ys)
+    ensures (xs[0] as nat) == (ys[0] as nat) ==> Value(xs) == Value(ys)
+  {
+    assert Value(xs) == (xs[0] as nat) + 0x1_0000_0000 * Value(xs[1..]);
+    assert Value(ys) == (ys[0] as nat) + 0x1_0000_0000 * Value(ys[1..]);
   }
 }
