@@ -77,14 +77,18 @@ verifies comfortably and deterministically. Same pattern used elsewhere.
 Was a deliberately-failing doc probe; now proved (`MulFits` closed) and moved to
 `doc/experiments/`. `verify.sh` is green again. Kept here for history.
 
-### DafnyReal.ToString string assembly  — should finish
-`src/DafnyReal.dfy` models Dafny's `BigRational` and is verified for all
-arithmetic (Normalize/Add/Sub/Neg/Mul/Div/Compare vs `RealValue`) and the
-numeric core of the decimal-print path (`IsPowerOf10` ⇒ `x==Pow10(l)`,
-`DividesAPowerOf10` ⇒ `factor*i==Pow10(log10)`). NOT yet done: the executable
-string body of `ToString` (repeated BigInt division by 10 + substring/sign/
-zero-padding), which needs a verified BigInt→decimal-string routine the library
-lacks. Left as an explicit gap with no false `ensures`, not faked.
+### DafnyReal.ToString  — mostly done; one formal step left
+`src/DafnyReal.dfy` models Dafny's `BigRational`, verified for all arithmetic
+(Normalize/Add/Sub/Neg/Mul/Div/Compare vs `RealValue`) and the decimal-print
+path: `DecimalString(n)` is now proved correct against `DenotesDecimal` (only
+digits, no leading zero, `ParseDec(s)==n`), and `ToString` assembles the three
+C# cases (`"num.0"`, decimal via `factor`/`log10` with `factor*den==10^log10`,
+`"(num.0 / den.0)"`) on those verified pieces.
+REMAINING: `ToString` carries no parse-back `ensures` — proving that the
+assembled string, parsed as a decimal fraction, equals `RealValue(x)` needs a
+`DenotesDecimalFraction(s, num, den)` relation the library does not define. That
+is the single last step for provably-correct `real` printing. No false spec is
+claimed meanwhile.
 
 ## Polish
 

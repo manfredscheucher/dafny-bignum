@@ -98,9 +98,10 @@ Consequences:
 - `src/DafnyReal.dfy` — **the `real` layer**: a verified counterpart of Dafny's
   runtime `BigRational`. Unreduced `num`/`den` over `BigInt`; `Normalize` (gcd of
   denominators), `Add` `Sub` `Neg` `Mul` `Div` `Compare` vs `RealValue()` (a
-  `real`); plus the verified numeric core of the decimal-print path
-  (`IsPowerOf10`, `DividesAPowerOf10`). The `ToString` string assembly is an
-  explicit gap (see TODO). **Verified (106).**
+  `real`); plus the decimal-print path: `DecimalString(n)` proved correct
+  against `DenotesDecimal`, `IsPowerOf10`/`DividesAPowerOf10`, and a `ToString`
+  assembling the three C# cases on those pieces. Only the parse-back equality of
+  the final string is still unproved (see TODO). **Verified (109).**
 - `src/Rational.dfy` — a *mathematical* rational, kept in lowest terms via gcd
   (`Make` opaque). Verified, but the auto-reduction is the WRONG semantics for
   Dafny's `real` — use `DafnyReal` for that. Parked; kept as a correct rational.
