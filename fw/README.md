@@ -23,5 +23,17 @@ code. That is what keeps the generated code native.
 ## Status
 
 - `FwNat.dfy`: `limb`/`dword`, ghost `Value`, `AddColumn`, `AddSeq`. Verified
-  (13/0). Generated C++ is Boost-free (`AddSeq` is `DafnySequence<uint32>` +
-  uint32/uint64 arithmetic, no BigNumber). Next: Sub, Mul, DivMod, sign, real.
+  (13/0), Boost-free.
+- `FwSub.dfy`: `SubColumn`, `SubSeq` (borrow-threaded). Verified (7/0), Boost-free.
+- `FwMul.dfy`: `MulAddColumn`, `MulLimb`, `ShiftOne`, `AddFull`, schoolbook `Mul`.
+  Verified (31/0), Boost-free.
+- Next: DivMod, signed int, real.
+
+## Gotcha: no `nat`/`int` counters in compiled code
+
+`int`/`nat` in ghost specs is fine. But a free `nat`/`int` used as a COMPILED
+value — a method parameter like `Shift(k: nat)` / `PadTo(n: nat)`, or a local
+counter — makes Dafny emit "Unbounded integers" (BigNumber/Boost) and fails
+Gate 2. Sequence lengths via `|s|` are fine (compile to `size_t`). Rule: recurse
+on the sequences themselves, never pass a numeric `nat`/`int` count into a
+compiled method. (Cost two rewrites in `FwMul`.)

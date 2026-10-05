@@ -23,3 +23,9 @@ examples/*.csproj
 examples/demo
 test/*.cs
 test/*.csproj
+
+# fw/: generated C++ from the boost-free translation checks (not source)
+fw/*.cpp
+fw/*.h
+fw/*.o
+fw/*-cpp/
