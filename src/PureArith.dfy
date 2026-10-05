@@ -530,4 +530,115 @@ module PureArith {
   lemma MulReassocNat(f: nat, a: nat, b: nat)
     ensures f * (a * b) == a * (f * b)
   {}
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Decimal string of a nat — the executable digit assembly for ToString,
+  // proved correct against ParseDec (the value a digit string denotes). Pure
+  // nat/char, no bignum axioms.
+  //////////////////////////////////////////////////////////////////////////////
+
+  // The character for a single decimal digit d (0..9).
+  function DigitChar(d: nat): char
+    requires d < 10
+  {
+    (d + ('0' as int)) as char
+  }
+
+  predicate IsDigitChar(c: char)
+  {
+    '0' <= c <= '9'
+  }
+
+  // The value of a single digit character.
+  function DigitVal(c: char): nat
+    requires IsDigitChar(c)
+  {
+    (c as int) - ('0' as int)
+  }
+
+  lemma DigitRoundTrip(d: nat)
+    requires d < 10
+    ensures IsDigitChar(DigitChar(d)) && DigitVal(DigitChar(d)) == d
+  {}
+
+  // The nat a digit string denotes, most-significant digit first.
+  function ParseDec(s: seq<char>): nat
+    requires forall i :: 0 <= i < |s| ==> IsDigitChar(s[i])
+  {
+    if |s| == 0 then 0
+    else ParseDec(s[..|s| - 1]) * 10 + DigitVal(s[|s| - 1])
+  }
+
+  // s is the canonical decimal string of n: only digits, no leading zero unless
+  // s == "0", and it denotes n.
+  predicate DenotesDecimal(s: seq<char>, n: nat)
+  {
+    && |s| >= 1
+    && (forall i :: 0 <= i < |s| ==> IsDigitChar(s[i]))
+    && (|s| > 1 ==> s[0] != '0')
+    && ParseDec(s) == n
+  }
+
+  // Appending one more-significant... actually least-significant digit: ParseDec
+  // distributes over the last position by construction, so prepending the high
+  // part works out. We build DecimalString(n) = DecimalString(n/10) + [n%10].
+  function DecimalString(n: nat): (s: seq<char>)
+    ensures DenotesDecimal(s, n)
+    decreases n
+  {
+    if n < 10 then
+      assert DigitChar(n) == (n + ('0' as int)) as char;
+      DigitRoundTrip(n);
+      [DigitChar(n)]
+    else
+      var hi := DecimalString(n / 10);
+      var lo := DigitChar(n % 10);
+      DecimalStringStep(n, hi, lo);
+      hi + [lo]
+  }
+
+  // The recursive step: if hi denotes n/10 (and is canonical) and lo is the
+  // digit n%10, then hi + [lo] denotes n and stays canonical.
+  lemma DecimalStringStep(n: nat, hi: seq<char>, lo: char)
+    requires n >= 10
+    requires DenotesDecimal(hi, n / 10)
+    requires lo == DigitChar(n % 10)
+    ensures DenotesDecimal(hi + [lo], n)
+  {
+    DigitRoundTrip(n % 10);
+    var s := hi + [lo];
+    // digit-ness of every position
+    assert forall i :: 0 <= i < |s| ==> IsDigitChar(s[i]) by {
+      forall i | 0 <= i < |s| ensures IsDigitChar(s[i]) {
+        if i < |hi| { assert s[i] == hi[i]; } else { assert s[i] == lo; }
+      }
+    }
+    // no leading zero: n >= 10 ==> n/10 >= 1 ==> hi denotes something >= 1, and
+    // hi is canonical so hi[0] != '0' (if |hi|>1) or hi=="d" with d>=1.
+    assert n / 10 >= 1;
+    assert |hi| >= 1;
+    assert s[0] == hi[0];
+    LeadingNonZero(hi, n / 10);
+    // value: ParseDec(hi + [lo]) == ParseDec(hi)*10 + DigitVal(lo)
+    assert s[..|s| - 1] == hi;
+    assert s[|s| - 1] == lo;
+    assert ParseDec(s) == ParseDec(hi) * 10 + DigitVal(lo);
+    assert ParseDec(hi) == n / 10;
+    assert DigitVal(lo) == n % 10;
+    assert n == (n / 10) * 10 + n % 10;
+  }
+
+  // A canonical decimal string denoting a value >= 1 has a nonzero first digit.
+  lemma LeadingNonZero(s: seq<char>, n: nat)
+    requires DenotesDecimal(s, n)
+    requires n >= 1
+    ensures s[0] != '0'
+  {
+    if |s| == 1 {
+      // s == [s[0]], ParseDec(s) == DigitVal(s[0]) == n >= 1, so s[0] != '0'.
+      assert ParseDec(s) == DigitVal(s[0]);
+      if s[0] == '0' { assert DigitVal(s[0]) == 0; }
+    }
+    // |s| > 1 is immediate from DenotesDecimal (s[0] != '0').
+  }
 }

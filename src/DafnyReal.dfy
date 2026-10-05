@@ -478,11 +478,15 @@ module DafnyReal {
   // gives (factor, log10), then num/den == (num*factor)/10^log10, so num*factor is
   // the digit string with the point log10 places from the right.
   //
-  // What is NOT done here: the executable string assembly over BigInt (repeated
-  // division by 10, substring/padding). That needs a verified BigInt->decimal
-  // routine which this library does not yet provide, so rather than claim a
-  // ToString with a false spec, the verified numeric kernel is exposed below and
-  // the string layer is left as an explicit gap (see doc/TODO.md).
+  // The digit assembly now uses PureArith.DecimalString, which is verified
+  // correct (DenotesDecimal). What is formally proved here: the digit strings
+  // are the decimal representations of the respective nats (DecimalString's
+  // postcondition), and the terminating-decimal numeric fact factor*den==10^log10
+  // (TerminatesDecimal). What is NOT given a spec: that the fully assembled
+  // string (with the point placed log10 from the right and sign/zero-padding)
+  // parses back to RealValue(x) — proving that needs a decimal-fraction parsing
+  // relation this library does not define, so ToString carries no such ensures
+  // rather than a false one. See doc/TODO.md.
   //////////////////////////////////////////////////////////////////////////////
 
   // Exposed verified kernel: if the (positive) denominator value divides a power
@@ -495,5 +499,49 @@ module DafnyReal {
             ok ==> factor * (BigInt.IntValue(x.den) as nat) == PureArith.Pow10(log10)
   {
     PureArith.DividesAPowerOf10Correct(BigInt.IntValue(x.den) as nat);
+  }
+
+  // Absolute value of an int as a nat.
+  function AbsNat(z: int): nat { if z < 0 then -z else z }
+
+  // A string of k '0' characters.
+  function Zeros(k: nat): (s: seq<char>)
+    ensures |s| == k
+    ensures forall i :: 0 <= i < |s| ==> s[i] == '0'
+  {
+    if k == 0 then [] else ['0'] + Zeros(k - 1)
+  }
+
+  // Decimal rendering of a DReal, matching C# BigRational.ToString.
+  // Executable; its numeric building blocks (DecimalString, factor/log10) are
+  // verified, but the assembled string itself carries no parse-back ensures
+  // (see the note above).
+  function ToString(x: DReal): seq<char>
+    requires Wf(x)
+  {
+    var numv := BigInt.IntValue(x.num);
+    var denv := BigInt.IntValue(x.den);
+    if numv == 0 || denv == 1 then
+      // whole-number / zero case: "num.0"
+      var sign := if numv < 0 then "-" else "";
+      sign + PureArith.DecimalString(AbsNat(numv)) + ".0"
+    else
+      var (ok, factor, log10) := PureArith.DividesAPowerOf10(denv as nat);
+      if ok then
+        // num/den == (num*factor)/10^log10: digits of |num*factor| with the
+        // decimal point log10 places from the right.
+        var n := numv * (factor as int);
+        var sign := if n < 0 then "-" else "";
+        var digits := PureArith.DecimalString(AbsNat(n));
+        if log10 < |digits| then
+          var cut := |digits| - log10;
+          sign + digits[..cut] + "." + digits[cut..]
+        else
+          // more fractional places than digits: "0." + leading zeros + digits
+          sign + "0." + Zeros(log10 - |digits|) + digits
+      else
+        // non-terminating in decimal: Dafny prints "(num.0 / den.0)"
+        "(" + PureArith.DecimalString(AbsNat(numv)) + ".0 / "
+            + PureArith.DecimalString(AbsNat(denv)) + ".0)"
   }
 }
