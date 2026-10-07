@@ -8,9 +8,11 @@
  *******************************************************************************/
 
 include "FwNat.dfy"
+include "FwDivMod.dfy"
 
 module FwMul {
   import opened FwNat
+  import FwDivMod
 
   //////////////////////////////////////////////////////////////////////////////
   // Single-limb multiply-accumulate column.
@@ -241,21 +243,6 @@ module FwMul {
     assert Value(p) == 0 + 0x1_0000_0000 * Value(r);
   }
 
-  // Appending a high zero limb does not change Value.
-  lemma PadAppendZero(xs: seq<limb>)
-    ensures Value(xs + [0 as limb]) == Value(xs)
-    decreases |xs|
-  {
-    if |xs| == 0 {
-      assert xs + [0 as limb] == [0 as limb];
-      assert Value([0 as limb]) == 0;
-    } else {
-      assert (xs + [0 as limb])[0] == xs[0];
-      assert (xs + [0 as limb])[1..] == xs[1..] + [0 as limb];
-      PadAppendZero(xs[1..]);
-    }
-  }
-
   // Value(s + [cout]) == Value(s) + cout*Pow32(n) == Value(xp)+Value(yp).
   lemma AddFullStep(xp: seq<limb>, yp: seq<limb>, s: seq<limb>, cout: limb,
                     zs: seq<limb>, n: nat)
@@ -307,6 +294,7 @@ module FwMul {
   // Recurse on ys: xs*ys = xs*ys[0] + B*(xs*ys[1..]).
   method Mul(xs: seq<limb>, ys: seq<limb>) returns (zs: seq<limb>)
     ensures Value(zs) == Value(xs) * Value(ys)
+    ensures Normalized(zs)
     decreases |ys|
   {
     if |ys| == 0 {
@@ -323,6 +311,9 @@ module FwMul {
     var shifted := ShiftOne(tail);
     zs := AddFull(partial, shifted);
     MulStep(xs, ys, partial, tail, shifted, zs);
+    // AddFull always appends a carry limb, so zs may carry leading zero limbs
+    // (e.g. an all-zero product). Normalize to drop them; Value is preserved.
+    zs := FwDivMod.Normalize(zs);
   }
 
   // Value(zs) == Value(xs)*Value(ys) from the pieces.
