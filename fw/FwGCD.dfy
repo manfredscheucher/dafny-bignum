@@ -201,21 +201,13 @@ module FwGCD {
   lemma MulShuffle(a: nat, b: nat, c: nat)
     ensures a * (b * c) == b * (a * c)
   {
-    MulAssocG(a, b, c);
-    assert a * b == b * a by { MulCommG(a, b); }
-    MulAssocG(b, a, c);
+    MulAssoc(a, b, c);
+    assert a * b == b * a by { MulComm(a, b); }
+    MulAssoc(b, a, c);
   }
-
-  lemma MulAssocG(a: nat, b: nat, c: nat)
-    ensures a * (b * c) == (a * b) * c
-  {}
 
   lemma DistribLeft(a: nat, p: nat, q: nat)
     ensures a * (p + q) == a * p + a * q
-  {}
-
-  lemma MulCommG(a: nat, b: nat)
-    ensures a * b == b * a
   {}
 
   lemma MulStrictMono(d: nat, a: nat, b: nat)

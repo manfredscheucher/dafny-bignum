@@ -125,13 +125,6 @@ module FwCompare {
     }
   }
 
-  lemma Pow32Monotone(a: nat, b: nat)
-    requires a <= b
-    ensures Pow32(a) <= Pow32(b)
-  {
-    if a == b {} else { Pow32Monotone(a, b - 1); assert Pow32(b) == 0x1_0000_0000 * Pow32(b - 1); }
-  }
-
   // LSB-first: if the tails (xs[1..] vs ys[1..]) differ, they decide the order,
   // because the tail is scaled by B and the head limbs are < B so cannot bridge
   // a tail gap of at least one.

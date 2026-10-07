@@ -174,7 +174,7 @@ module FwRealToString {
   {
     if |r| >= 2 {
       FwCompare.TopLimbLowerBound(r);
-      FwDivMod.Pow32Positive(|r| - 1);
+      Pow32Positive(|r| - 1);
       assert Value(r) >= Pow32(|r| - 1);
       Pow32Big(|r| - 1);
     }
@@ -186,7 +186,7 @@ module FwRealToString {
     requires k >= 1
     ensures Pow32(k) >= 0x1_0000_0000
   {
-    FwDivMod.Pow32Positive(k - 1);
+    Pow32Positive(k - 1);
     assert Pow32(k) == 0x1_0000_0000 * Pow32(k - 1);
   }
 

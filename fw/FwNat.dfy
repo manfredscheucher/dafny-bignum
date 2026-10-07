@@ -125,4 +125,30 @@ module FwNat {
   lemma DistribBig(B: nat, vxt: nat, vyt: nat, vc1: nat, vc2: nat, p: nat)
     ensures B * (vxt + vyt + vc1 - vc2 * p) == B*vxt + B*vyt + B*vc1 - (B*p)*vc2
   {}
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Trivial, representation-independent nat algebra. Centralized here so the
+  // other fw modules (all `import opened FwNat`) share one copy.
+  //////////////////////////////////////////////////////////////////////////////
+
+  lemma MulComm(a: nat, b: nat)
+    ensures a * b == b * a
+  {}
+
+  lemma MulAssoc(a: nat, b: nat, c: nat)
+    ensures a * (b * c) == (a * b) * c
+  {}
+
+  lemma Pow32Positive(n: nat)
+    ensures Pow32(n) >= 1
+  {
+    if n == 0 {} else { Pow32Positive(n - 1); }
+  }
+
+  lemma Pow32Monotone(a: nat, b: nat)
+    requires a <= b
+    ensures Pow32(a) <= Pow32(b)
+  {
+    if a == b {} else { Pow32Monotone(a, b - 1); assert Pow32(b) == 0x1_0000_0000 * Pow32(b - 1); }
+  }
 }

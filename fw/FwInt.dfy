@@ -50,7 +50,7 @@ module FwInt {
     ensures Value(mag) > 0
   {
     FwCompare.TopLimbLowerBound(mag);      // Value(mag) >= Pow32(|mag|-1)
-    FwDivMod.Pow32Positive(|mag| - 1);     // Pow32(|mag|-1) >= 1
+    Pow32Positive(|mag| - 1);     // Pow32(|mag|-1) >= 1
   }
 
   //////////////////////////////////////////////////////////////////////////////

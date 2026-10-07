@@ -725,14 +725,6 @@ module FwDivMod {
     ensures h + B * (vt + p * x) == (h + B * vt) + (B * p) * x
   {}
 
-  lemma MulAssoc(a: nat, b: nat, c: nat)
-    ensures a * (b * c) == (a * b) * c
-  {}
-
-  lemma MulComm(a: nat, b: nat)
-    ensures a * b == b * a
-  {}
-
   lemma LemmaDistrib2(a: nat, p: nat, q: nat)
     ensures a * (p + q) == a * p + a * q
   {}
@@ -766,12 +758,6 @@ module FwDivMod {
     requires a <= b
     ensures a * k <= b * k
   {}
-
-  lemma Pow32Positive(n: nat)
-    ensures Pow32(n) >= 1
-  {
-    if n == 0 {} else { Pow32Positive(n - 1); }
-  }
 
   lemma LemmaPowStep(pow: nat, n: nat)
     requires pow == Pow32(n)
