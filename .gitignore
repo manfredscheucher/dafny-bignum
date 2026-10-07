@@ -29,3 +29,6 @@ fw/*.cpp
 fw/*.h
 fw/*.o
 fw/*-cpp/
+fw/*.cs
+fw/*.csproj
+fw/FwTest
