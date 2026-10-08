@@ -16,6 +16,9 @@ include "FwMul.dfy"
 include "FwCompare.dfy"
 include "FwDivMod.dfy"
 include "FwGCD.dfy"
+include "FwInt.dfy"
+include "FwReal.dfy"
+include "FwRealToString.dfy"
 
 module FwTest {
   import opened FwNat
@@ -24,6 +27,9 @@ module FwTest {
   import FwCompare
   import FwDivMod
   import FwGCD
+  import FwInt
+  import FwReal
+  import FwRealToString
 
   // Addition: 5 + 7 == 12 (single limb, no carry).
   method TestAddSmall() {
@@ -119,6 +125,27 @@ module FwTest {
     expect g == [6 as limb];
     print "gcd  12, 18           = [6]             OK\n";
 
+    // real ToString: all three C# BigRational shapes
+    CheckReal(3, 2, "1.5");             // terminating decimal
+    CheckReal(1, 10, "0.1");            // terminating, zero-padded
+    CheckReal(5, 1, "5.0");             // whole number
+    CheckReal(3, 7, "(3.0 / 7.0)");     // non-terminating -> fraction print
+
     print "all fixed-width checks passed\n";
+  }
+
+  // Build the real num/den and check its decimal rendering equals `expected`.
+  method CheckReal(num: limb, den: limb, expected: seq<char>)
+    requires (den as nat) > 0
+  {
+    var n := FwInt.Make(false, if num == 0 then [] else [num]);
+    var d := FwInt.Make(false, [den]);
+    // d's value is Value([den]) == den > 0, from Make's ensures.
+    assert Value([den]) == (den as nat);
+    assert FwInt.IntValue(d) > 0;
+    var x := FwReal.Make(n, d);
+    var s := FwRealToString.ToString(x);
+    expect s == expected;
+    print "real ", expected, "\n";
   }
 }
