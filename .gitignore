@@ -32,3 +32,4 @@ fw/*-cpp/
 fw/*.cs
 fw/*.csproj
 fw/FwTest
+fw/*_exe
