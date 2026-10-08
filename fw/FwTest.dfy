@@ -93,27 +93,32 @@ module FwTest {
 
   // Runnable end-to-end: compute and print a few results. Exercises the native
   // (Boost-free) generated code.
+  // Runnable end-to-end check. Compares each result to the expected limb
+  // sequence with `expect` (a runtime assertion that aborts with a message on
+  // failure) and prints a status line. No `x as int` conversions in print, so
+  // the generated C++ needs no `_dafny` module object — it builds Boost-free
+  // with a plain g++ (see fw/README).
   method Main() {
+    // 5 + 7 == 12 (single limb, no carry)
     var sum, c := AddSeq([5 as limb], [7 as limb], 0);
-    print "5 + 7 -> low limb ", sum[0] as int, ", carry ", c as int, "\n";
-    var prod := FwMul.Mul([0xFFFF_FFFF as limb], [0xFFFF_FFFF as limb]);
-    print "(2^32-1)^2 limbs: [";
-    PrintLimbs(prod);
-    print "]\n";
-    var q, r := FwDivMod.DivMod([100 as limb], [7 as limb]);
-    print "100 / 7 -> q limbs ["; PrintLimbs(q);
-    print "]  r limbs ["; PrintLimbs(r); print "]\n";
-  }
+    expect sum == [12 as limb] && c == 0;
+    print "add  5 + 7            = [12]            OK\n";
 
-  // Print a limb sequence, recursing on the tail (no numeric index/counter).
-  method PrintLimbs(xs: seq<limb>)
-    decreases |xs|
-  {
-    if |xs| == 0 {
-    } else {
-      print xs[0] as int;
-      if |xs| > 1 { print ", "; }
-      PrintLimbs(xs[1..]);
-    }
+    // (2^32-1)^2 == 0xFFFFFFFE00000001 == limbs [1, 0xFFFFFFFE, 0]
+    var prod := FwMul.Mul([0xFFFF_FFFF as limb], [0xFFFF_FFFF as limb]);
+    expect prod == [1 as limb, 0xFFFF_FFFE as limb];
+    print "mul  (2^32-1)^2       = [1, 4294967294] OK\n";
+
+    // 100 / 7 == 14 remainder 2
+    var q, r := FwDivMod.DivMod([100 as limb], [7 as limb]);
+    expect q == [14 as limb] && r == [2 as limb];
+    print "div  100 / 7          = q[14] r[2]      OK\n";
+
+    // gcd(12, 18) == 6
+    var g := FwGCD.GCD([12 as limb], [18 as limb]);
+    expect g == [6 as limb];
+    print "gcd  12, 18           = [6]             OK\n";
+
+    print "all fixed-width checks passed\n";
   }
 }
